@@ -4,7 +4,8 @@
 #include "glew\glew.h"
 #include "glew\wglew.h"
 
-#include <stdio.h>
+#include <string>
+#include <fstream>
 
 #define global_variable static
 #define internal static
@@ -24,7 +25,12 @@ typedef int32_t b32;
 typedef float r32;
 typedef double r64;
 
+#define Assert(Expression) if(!(Expression)) { *(int *)0 = 0; }
 #define ArrayCount(Array) (sizeof(Array)/sizeof((Array)[0]))
+
+#include "haha3d_intrinsics.h"
+#include "haha3d_math.h"
+#include "haha3d_renderer_opengl.cpp"
 
 global_variable b32 GlobalRunning;
 
@@ -135,6 +141,8 @@ WinInitOpenGL(HWND Window)
         if(wglMakeCurrent(WindowDC, OpenGLRC))
         {
             ModernOpenGLInitialized = true;
+
+            InitOpenGLProperties();
         }
     }
 
@@ -150,6 +158,18 @@ WinWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
 
     switch(Message)
     {
+        case WM_ACTIVATEAPP:
+        {
+            if(WParam)
+            {
+                ShowCursor(FALSE);
+            }
+            else
+            {
+                ShowCursor(TRUE);
+            }
+        } break;
+
         case WM_CLOSE:
         case WM_DESTROY:
         {
@@ -312,6 +332,18 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
                                 {
                                     WinProcessKey(&GameInput.MoveForward, IsDown);
                                 }
+                                if(KeyCode == 'S')
+                                {
+                                    WinProcessKey(&GameInput.MoveBack, IsDown);
+                                }
+                                if(KeyCode == 'D')
+                                {
+                                    WinProcessKey(&GameInput.MoveRight, IsDown);
+                                }
+                                if(KeyCode == 'A')
+                                {
+                                    WinProcessKey(&GameInput.MoveLeft, IsDown);
+                                }
 
                                 if(KeyCode == VK_F4)
                                 {
@@ -376,15 +408,18 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
                 glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+                static shader Shader("shaders/Shader.glsl");
+
                 static b32 TriDataInitialized = false;
                 static GLuint TriVAO = 0, TriVBO = 0;
+                static GLuint CubeVAO = 0, CubeVBO = 0;
                 if(!TriDataInitialized)
                 {
                     r32 TriVertices[] = 
                     {
-                        -0.5f, -0.5f,
-                        0.5f, -0.5f, 
-                        0.0f, 0.5f
+                        -0.5f, -0.5f, 0.0f, 
+                        0.5f, -0.5f, 0.0f,
+                        0.0f, 0.5f, 0.0f
                     };
 
                     glGenVertexArrays(1, &TriVAO);
@@ -393,13 +428,100 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
                     glBindBuffer(GL_ARRAY_BUFFER, TriVBO);
                     glBufferData(GL_ARRAY_BUFFER, sizeof(TriVertices), TriVertices, GL_STATIC_DRAW);
                     glEnableVertexAttribArray(0);
-                    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2*sizeof(r32), (void *)0);
+                    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(r32), (void *)0);
+                    glBindVertexArray(0);
+                    glBindBuffer(GL_ARRAY_BUFFER, 0);
+                    
+                    r32 CubeVertices[] = {
+                        // Back face
+                        -0.5f, -0.5f, -0.5f,
+                        0.5f,  0.5f, -0.5f,
+                        0.5f, -0.5f, -0.5f,
+                        0.5f,  0.5f, -0.5f,
+                        -0.5f, -0.5f, -0.5f,
+                        -0.5f,  0.5f, -0.5f,
+                        // Front face
+                        -0.5f, -0.5f,  0.5f,
+                        0.5f, -0.5f,  0.5f,
+                        0.5f,  0.5f,  0.5f,
+                        0.5f,  0.5f,  0.5f,
+                        -0.5f,  0.5f,  0.5f,
+                        -0.5f, -0.5f,  0.5f,
+                        // Left face
+                        -0.5f,  0.5f,  0.5f,
+                        -0.5f,  0.5f, -0.5f,
+                        -0.5f, -0.5f, -0.5f,
+                        -0.5f, -0.5f, -0.5f,
+                        -0.5f, -0.5f,  0.5f,
+                        -0.5f,  0.5f,  0.5f,
+                        // Right face
+                        0.5f,  0.5f,  0.5f,
+                        0.5f, -0.5f, -0.5f,
+                        0.5f,  0.5f, -0.5f,
+                        0.5f, -0.5f, -0.5f,
+                        0.5f,  0.5f,  0.5f,
+                        0.5f, -0.5f,  0.5f,
+                        // Bottom face
+                        -0.5f, -0.5f, -0.5f,
+                        0.5f, -0.5f, -0.5f,
+                        0.5f, -0.5f,  0.5f,
+                        0.5f, -0.5f,  0.5f,
+                        -0.5f, -0.5f,  0.5f,
+                        -0.5f, -0.5f, -0.5f,
+                        // Top face
+                        -0.5f,  0.5f, -0.5f,
+                        0.5f,  0.5f , 0.5f,
+                        0.5f,  0.5f, -0.5f,
+                        0.5f,  0.5f,  0.5f,
+                        -0.5f,  0.5f, -0.5f,
+                        -0.5f,  0.5f,  0.5f,
+                    };
+                    glGenVertexArrays(1, &CubeVAO);
+                    glGenBuffers(1, &CubeVBO);
+                    glBindVertexArray(CubeVAO);
+                    glBindBuffer(GL_ARRAY_BUFFER, CubeVBO);
+                    glBufferData(GL_ARRAY_BUFFER, sizeof(CubeVertices), CubeVertices, GL_STATIC_DRAW);
+                    glEnableVertexAttribArray(0);
+                    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(r32), (void *)0);
                     glBindVertexArray(0);
                     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
                     TriDataInitialized = true;
                 }
 
+                static r32 CameraPitch = 0.0f;
+                static r32 CameraHead = 0.0f;
+                r32 CameraRotationSensetivity = 0.1f;
+                CameraPitch -= GameInput.MouseYDisplacement*CameraRotationSensetivity;
+                CameraHead -= GameInput.MouseXDisplacement*CameraRotationSensetivity;
+
+                CameraPitch = CameraPitch > 89.0f ? 89.0f : CameraPitch;
+                CameraPitch = CameraPitch < -89.0f ? -89.0f : CameraPitch;
+
+                r32 PitchRadians = Radians(CameraPitch);
+                r32 HeadRadians = Radians(CameraHead);
+
+                r32 CameraDistanceFromHero = 5.0f;
+                r32 FloorDistanceFromHero = CameraDistanceFromHero * Cos(-PitchRadians);
+                
+                r32 XOffsetFromHero = FloorDistanceFromHero * Sin(HeadRadians);
+                r32 YOffsetFromHero = CameraDistanceFromHero * Sin(-PitchRadians);
+                r32 ZOffsetFromHero = FloorDistanceFromHero * Cos(HeadRadians);
+                vec3 CameraOffsetFromHero = vec3(XOffsetFromHero, YOffsetFromHero, ZOffsetFromHero);
+    
+                mat4 Projection = Perspective(45.0f, (r32)WindowWidth/(r32)WindowHeight, 0.1f, 50.0f);
+                mat4 View = ViewRotationMatrixFromDirection(-CameraOffsetFromHero) * Translation(-CameraOffsetFromHero);
+                mat4 Model = Identity();
+
+                Shader.Use();
+                Shader.SetMat4("Projection", Projection);
+                Shader.SetMat4("View", View);
+                Shader.SetMat4("Model", Model);
+                glBindVertexArray(CubeVAO);
+                glDrawArrays(GL_TRIANGLES, 0, 36);
+                glBindVertexArray(0);
+                Model = Translation(vec3(0.0f, 0.0f, -3.0f));
+                Shader.SetMat4("Model", Model);
                 glBindVertexArray(TriVAO);
                 glDrawArrays(GL_TRIANGLES, 0, 3);
                 glBindVertexArray(0);
