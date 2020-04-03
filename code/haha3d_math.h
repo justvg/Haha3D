@@ -193,6 +193,22 @@ Radians(r32 Angle)
     return(Result);
 }
 
+inline r32
+Degrees(r32 Rad)
+{
+    r32 Result = (Rad / PI) * 180.0f;
+
+    return(Result);
+}
+
+inline r32
+Lerp(r32 A, r32 B, r32 t)
+{
+    r32 Result = A + (B - A)*t;
+
+    return(Result);
+}
+
 // 
 // NOTE(georgy): vec2
 // 
@@ -754,12 +770,12 @@ Rotation(r32 Angle, vec3 Axis)
 	Result.a31 = Axis.x*Axis.z*(1.0f - Cosine) - Axis.y*Sine;
 	Result.a41 = 0.0f;
 
-	Result.a12 = Axis.x*Axis.y*(1.0f - Cosine) - Axis.z*Sine;
+    Result.a12 = Axis.x*Axis.y*(1.0f - Cosine) - Axis.z*Sine;
 	Result.a22 = Axis.y*Axis.y*(1.0f - Cosine) + Cosine;
 	Result.a32 = Axis.y*Axis.z*(1.0f - Cosine) + Axis.x*Sine;
 	Result.a42 = 0.0f;
 
-	Result.a13 = Axis.x*Axis.z*(1.0f - Cosine) + Axis.y*Sine;
+    Result.a13 = Axis.x*Axis.z*(1.0f - Cosine) + Axis.y*Sine;
 	Result.a23 = Axis.y*Axis.z*(1.0f - Cosine) - Axis.x*Sine;
 	Result.a33 = Axis.z*Axis.z*(1.0f - Cosine) + Cosine;
 	Result.a43 = 0.0f;

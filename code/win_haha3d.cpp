@@ -32,7 +32,48 @@ typedef double r64;
 #include "haha3d_math.h"
 #include "haha3d_renderer_opengl.cpp"
 
+struct button
+{
+    b32 EndedDown;
+    u32 HalfTransitionCount;
+};
+
+struct game_input
+{
+    i32 MouseX, MouseY;
+    i32 MouseXDisplacement, MouseYDisplacement;
+
+    union
+    {
+        button Buttons[8];
+        struct
+        {
+            button MoveForward;
+            button MoveBack;
+            button MoveRight;
+            button MoveLeft;
+
+            button MouseLeft, MouseRight;
+
+            button F4;
+            button Alt;
+        };
+    };
+};
+
+inline b32
+WasDown(button *Button)
+{
+    b32 Result = (Button->EndedDown && (Button->HalfTransitionCount == 1)) ||
+                 (Button->HalfTransitionCount > 1);
+
+    return(Result);
+}
+
+#include "haha3d.cpp"
+
 global_variable b32 GlobalRunning;
+global_variable b32 GlobalWindowIsFocused;
 
 internal void
 WinSetPixelFormat(HDC WindowDC)
@@ -163,10 +204,12 @@ WinWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
             if(WParam)
             {
                 ShowCursor(FALSE);
+                GlobalWindowIsFocused = true;
             }
             else
             {
                 ShowCursor(TRUE);
+                GlobalWindowIsFocused = false;
             }
         } break;
 
@@ -189,44 +232,6 @@ WinWindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
             Result = DefWindowProc(Window, Message, WParam, LParam);
         }
     }
-
-    return(Result);
-}
-
-struct button
-{
-    b32 EndedDown;
-    u32 HalfTransitionCount;
-};
-
-struct game_input
-{
-    i32 MouseX, MouseY;
-    i32 MouseXDisplacement, MouseYDisplacement;
-
-    union
-    {
-        button Buttons[8];
-        struct
-        {
-            button MoveForward;
-            button MoveBack;
-            button MoveRight;
-            button MoveLeft;
-
-            button MouseLeft, MouseRight;
-
-            button F4;
-            button Alt;
-        };
-    };
-};
-
-inline b32
-WasDown(button *Button)
-{
-    b32 Result = (Button->EndedDown && (Button->HalfTransitionCount == 1)) ||
-                 (Button->HalfTransitionCount > 1);
 
     return(Result);
 }
@@ -300,6 +305,22 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 
 			while(GlobalRunning)
 			{
+                if(GlobalWindowIsFocused)
+                {
+                    RECT ClipRect;
+                    GetWindowRect(Window, &ClipRect);
+                    LONG ClipRectHeight = ClipRect.bottom - ClipRect.top;
+                    LONG ClipRectWidth = ClipRect.right - ClipRect.left;
+                    ClipRect.top = ClipRect.bottom = ClipRect.top + ClipRectHeight/2;
+                    ClipRect.left = ClipRect.right = ClipRect.left + ClipRectWidth/2;
+                    ClipCursor(&ClipRect);
+                }
+                else
+                {
+                    ClipCursor(0);
+                }
+
+                GameInput.MouseXDisplacement = GameInput.MouseYDisplacement = 0;
                 for(u32 ButtonIndex = 0;
                     ButtonIndex < ArrayCount(GameInput.Buttons);
                     ButtonIndex++)
@@ -408,123 +429,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
                 glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-                static shader Shader("shaders/Shader.glsl");
-
-                static b32 TriDataInitialized = false;
-                static GLuint TriVAO = 0, TriVBO = 0;
-                static GLuint CubeVAO = 0, CubeVBO = 0;
-                if(!TriDataInitialized)
-                {
-                    r32 TriVertices[] = 
-                    {
-                        -0.5f, -0.5f, 0.0f, 
-                        0.5f, -0.5f, 0.0f,
-                        0.0f, 0.5f, 0.0f
-                    };
-
-                    glGenVertexArrays(1, &TriVAO);
-                    glGenBuffers(1, &TriVBO);
-                    glBindVertexArray(TriVAO);
-                    glBindBuffer(GL_ARRAY_BUFFER, TriVBO);
-                    glBufferData(GL_ARRAY_BUFFER, sizeof(TriVertices), TriVertices, GL_STATIC_DRAW);
-                    glEnableVertexAttribArray(0);
-                    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(r32), (void *)0);
-                    glBindVertexArray(0);
-                    glBindBuffer(GL_ARRAY_BUFFER, 0);
-                    
-                    r32 CubeVertices[] = {
-                        // Back face
-                        -0.5f, -0.5f, -0.5f,
-                        0.5f,  0.5f, -0.5f,
-                        0.5f, -0.5f, -0.5f,
-                        0.5f,  0.5f, -0.5f,
-                        -0.5f, -0.5f, -0.5f,
-                        -0.5f,  0.5f, -0.5f,
-                        // Front face
-                        -0.5f, -0.5f,  0.5f,
-                        0.5f, -0.5f,  0.5f,
-                        0.5f,  0.5f,  0.5f,
-                        0.5f,  0.5f,  0.5f,
-                        -0.5f,  0.5f,  0.5f,
-                        -0.5f, -0.5f,  0.5f,
-                        // Left face
-                        -0.5f,  0.5f,  0.5f,
-                        -0.5f,  0.5f, -0.5f,
-                        -0.5f, -0.5f, -0.5f,
-                        -0.5f, -0.5f, -0.5f,
-                        -0.5f, -0.5f,  0.5f,
-                        -0.5f,  0.5f,  0.5f,
-                        // Right face
-                        0.5f,  0.5f,  0.5f,
-                        0.5f, -0.5f, -0.5f,
-                        0.5f,  0.5f, -0.5f,
-                        0.5f, -0.5f, -0.5f,
-                        0.5f,  0.5f,  0.5f,
-                        0.5f, -0.5f,  0.5f,
-                        // Bottom face
-                        -0.5f, -0.5f, -0.5f,
-                        0.5f, -0.5f, -0.5f,
-                        0.5f, -0.5f,  0.5f,
-                        0.5f, -0.5f,  0.5f,
-                        -0.5f, -0.5f,  0.5f,
-                        -0.5f, -0.5f, -0.5f,
-                        // Top face
-                        -0.5f,  0.5f, -0.5f,
-                        0.5f,  0.5f , 0.5f,
-                        0.5f,  0.5f, -0.5f,
-                        0.5f,  0.5f,  0.5f,
-                        -0.5f,  0.5f, -0.5f,
-                        -0.5f,  0.5f,  0.5f,
-                    };
-                    glGenVertexArrays(1, &CubeVAO);
-                    glGenBuffers(1, &CubeVBO);
-                    glBindVertexArray(CubeVAO);
-                    glBindBuffer(GL_ARRAY_BUFFER, CubeVBO);
-                    glBufferData(GL_ARRAY_BUFFER, sizeof(CubeVertices), CubeVertices, GL_STATIC_DRAW);
-                    glEnableVertexAttribArray(0);
-                    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(r32), (void *)0);
-                    glBindVertexArray(0);
-                    glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-                    TriDataInitialized = true;
-                }
-
-                static r32 CameraPitch = 0.0f;
-                static r32 CameraHead = 0.0f;
-                r32 CameraRotationSensetivity = 0.1f;
-                CameraPitch -= GameInput.MouseYDisplacement*CameraRotationSensetivity;
-                CameraHead -= GameInput.MouseXDisplacement*CameraRotationSensetivity;
-
-                CameraPitch = CameraPitch > 89.0f ? 89.0f : CameraPitch;
-                CameraPitch = CameraPitch < -89.0f ? -89.0f : CameraPitch;
-
-                r32 PitchRadians = Radians(CameraPitch);
-                r32 HeadRadians = Radians(CameraHead);
-
-                r32 CameraDistanceFromHero = 5.0f;
-                r32 FloorDistanceFromHero = CameraDistanceFromHero * Cos(-PitchRadians);
-                
-                r32 XOffsetFromHero = FloorDistanceFromHero * Sin(HeadRadians);
-                r32 YOffsetFromHero = CameraDistanceFromHero * Sin(-PitchRadians);
-                r32 ZOffsetFromHero = FloorDistanceFromHero * Cos(HeadRadians);
-                vec3 CameraOffsetFromHero = vec3(XOffsetFromHero, YOffsetFromHero, ZOffsetFromHero);
-    
-                mat4 Projection = Perspective(45.0f, (r32)WindowWidth/(r32)WindowHeight, 0.1f, 50.0f);
-                mat4 View = ViewRotationMatrixFromDirection(-CameraOffsetFromHero) * Translation(-CameraOffsetFromHero);
-                mat4 Model = Identity();
-
-                Shader.Use();
-                Shader.SetMat4("Projection", Projection);
-                Shader.SetMat4("View", View);
-                Shader.SetMat4("Model", Model);
-                glBindVertexArray(CubeVAO);
-                glDrawArrays(GL_TRIANGLES, 0, 36);
-                glBindVertexArray(0);
-                Model = Translation(vec3(0.0f, 0.0f, -3.0f));
-                Shader.SetMat4("Model", Model);
-                glBindVertexArray(TriVAO);
-                glDrawArrays(GL_TRIANGLES, 0, 3);
-                glBindVertexArray(0);
+                GameUpdateAndRender(&GameInput, WindowWidth, WindowHeight);
 
                 HDC WindowDC = GetDC(Window);
                 SwapBuffers(WindowDC);
