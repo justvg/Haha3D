@@ -1,79 +1,90 @@
 #include <Windows.h>
-#include <stdint.h>
-
-#include "glew\glew.h"
-#include "glew\wglew.h"
 
 #include <string>
 #include <fstream>
 
-#define global_variable static
-#define internal static
+#include "glew\glew.h"
+#include "glew\wglew.h"
 
-typedef  uint8_t u8;
-typedef  uint8_t b8;
-typedef  uint16_t u16;
-typedef  uint32_t u32;
-typedef  uint64_t u64;
-
-typedef int8_t i8;
-typedef int16_t i16;
-typedef int32_t i32;
-typedef int64_t i64;
-typedef int32_t b32;
-
-typedef float r32;
-typedef double r64;
-
-#define Assert(Expression) if(!(Expression)) { *(int *)0 = 0; }
-#define ArrayCount(Array) (sizeof(Array)/sizeof((Array)[0]))
-
-#include "haha3d_intrinsics.h"
-#include "haha3d_math.h"
+#include "haha3d_platform.h"
 #include "haha3d_renderer_opengl.cpp"
 
-struct button
-{
-    b32 EndedDown;
-    u32 HalfTransitionCount;
-};
+global_variable b32 GlobalRunning;
+global_variable b32 GlobalWindowIsFocused;
 
-struct game_input
+internal void
+CatStrings(u32 ALength, char *SourceA, u32 BLength, char *SourceB, u32 DestSize, char *Dest)
 {
-    i32 MouseX, MouseY;
-    i32 MouseXDisplacement, MouseYDisplacement;
+    Assert(DestSize > (ALength + BLength));
 
-    union
+    for(u32 Index = 0;
+        Index < ALength;
+        Index++)
     {
-        button Buttons[8];
-        struct
-        {
-            button MoveForward;
-            button MoveBack;
-            button MoveRight;
-            button MoveLeft;
+        *Dest++ = *SourceA++;
+    }
 
-            button MouseLeft, MouseRight;
+    for(u32 Index = 0;
+        Index < BLength;
+        Index++)
+    {
+        *Dest++ = *SourceB++;
+    }
 
-            button F4;
-            button Alt;
-        };
-    };
+    *Dest = 0;
+}
+
+struct win_game_code
+{
+    HMODULE GameCodeDLL;
+    FILETIME DLLLastWriteTime;
+
+    game_update_and_render *UpdateAndRender;
 };
 
-inline b32
-WasDown(button *Button)
+internal FILETIME 
+WinGetLastWriteTime(char *Filename)
 {
-    b32 Result = (Button->EndedDown && (Button->HalfTransitionCount == 1)) ||
-                 (Button->HalfTransitionCount > 1);
+    FILETIME LastWriteTime = {};
+
+    WIN32_FILE_ATTRIBUTE_DATA Data;
+    if(GetFileAttributesEx(Filename, GetFileExInfoStandard, &Data))
+    {
+        LastWriteTime = Data.ftLastWriteTime;
+    }
+
+    return(LastWriteTime);
+}
+
+internal win_game_code
+WinLoadGameCode(char *SourceDLLName, char *TempDLLName)
+{
+    win_game_code Result = {};
+
+    Result.DLLLastWriteTime = WinGetLastWriteTime(SourceDLLName);
+
+    CopyFile(SourceDLLName, TempDLLName, FALSE);
+
+    Result.GameCodeDLL = LoadLibrary(TempDLLName);
+    if(Result.GameCodeDLL)
+    {
+        Result.UpdateAndRender = (game_update_and_render *)GetProcAddress(Result.GameCodeDLL, "GameUpdateAndRender");
+    }
 
     return(Result);
 }
 
-#include "haha3d.cpp"
+internal void
+WinUnloadGameCode(win_game_code *GameCode)
+{
+    if(GameCode->GameCodeDLL)
+    {
+        FreeLibrary(GameCode->GameCodeDLL);
+        GameCode->GameCodeDLL = 0;
+    }
 
-global_variable b32 GlobalRunning;
-global_variable b32 GlobalWindowIsFocused;
+    GameCode->UpdateAndRender = 0;
+}
 
 internal void
 WinSetPixelFormat(HDC WindowDC)
@@ -250,6 +261,28 @@ WinProcessKey(button *Button, b32 IsDown)
 int CALLBACK
 WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowCode)
 {
+    char ExecutableFilename[MAX_PATH];
+    char *OneAfterLastExecutableFilenameSlash = 0;
+    DWORD ExecutableFilenameLength = GetModuleFileName(0, ExecutableFilename, sizeof(ExecutableFilename));
+    for(char *Scan = ExecutableFilename;
+        *Scan;
+        Scan++)
+    {
+        if(*Scan == '\\')
+        {
+            OneAfterLastExecutableFilenameSlash = Scan + 1;
+        }
+    }
+
+    char GameCodeSourceDLLName[MAX_PATH];
+    char GameCodeTempDLLName[MAX_PATH];
+    CatStrings((u32)(OneAfterLastExecutableFilenameSlash - ExecutableFilename), ExecutableFilename,
+                sizeof("haha3d.dll"), "haha3d.dll", 
+                sizeof(GameCodeSourceDLLName), GameCodeSourceDLLName);
+    CatStrings((u32)(OneAfterLastExecutableFilenameSlash - ExecutableFilename), ExecutableFilename,
+                sizeof("haha3d_temp.dll"), "haha3d_temp.dll", 
+                sizeof(GameCodeTempDLLName), GameCodeTempDLLName);
+
     WNDCLASS WindowClass = {};
     WindowClass.style = CS_VREDRAW | CS_HREDRAW;
     WindowClass.lpfnWndProc = WinWindowCallback;
@@ -303,6 +336,11 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
             GameInput.MouseX = MouseP.x;
             GameInput.MouseY = MouseP.y;
 
+            platform_api PlatformAPI = {};
+            PlatformAPI.InitBuffers = InitBuffers;
+            PlatformAPI.CompileShader = CompileShader;
+
+            win_game_code Game = WinLoadGameCode(GameCodeSourceDLLName, GameCodeTempDLLName);
 			while(GlobalRunning)
 			{
                 if(GlobalWindowIsFocused)
@@ -429,11 +467,26 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
                 glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-                GameUpdateAndRender(&GameInput, WindowWidth, WindowHeight);
+                render_command_buffer RenderCommandBuffer;
+                RenderCommandBuffer.CommandCount = 0;
+
+                if(Game.UpdateAndRender)
+                {
+                    Game.UpdateAndRender(&GameInput, &RenderCommandBuffer, WindowWidth, WindowHeight, PlatformAPI);
+                }
 
                 HDC WindowDC = GetDC(Window);
+                RenderCommands(&RenderCommandBuffer);
                 SwapBuffers(WindowDC);
                 ReleaseDC(Window, WindowDC);
+
+                FILETIME NewGameCodeDLLWriteTime = WinGetLastWriteTime(GameCodeSourceDLLName);
+                b32 GameCodeNeedsToBeReloaded = CompareFileTime(&NewGameCodeDLLWriteTime, &Game.DLLLastWriteTime);
+                if(GameCodeNeedsToBeReloaded)
+                {
+                    WinUnloadGameCode(&Game);
+                    Game = WinLoadGameCode(GameCodeSourceDLLName, GameCodeTempDLLName);
+                }
 			}
         }
     }

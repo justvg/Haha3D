@@ -1,20 +1,54 @@
+#include "haha3d_platform.h"
+#include "haha3d_intrinsics.h"
+#include "haha3d_math.cpp"
+
+platform_api Platform;
+
+struct shader
+{
+    void *Handle;
+};
+
+struct model
+{
+    u32 VertexCount;
+
+    void *Handle;
+};
 
 internal void
-GameUpdateAndRender(game_input *Input, u32 WindowWidth, u32 WindowHeight)
+InitModel(model *Model, u32 Size, r32 *Vertices, u32 VertexCount)
 {
-    static shader Shader("shaders/Shader.glsl");
+    Model->VertexCount = VertexCount;
 
+    Platform.InitBuffers(&Model->Handle, Size, Vertices);
+}
+
+#include "haha3d_render_command_buffer.cpp"
+
+extern "C" 
+GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
+{
+    Platform = PlatformAPI;
+
+    static shader Shader;
     static b32 TriDataInitialized = false;
-    static GLuint TriVAO = 0, TriVBO = 0;
-    static GLuint CubeVAO = 0, CubeVBO = 0;
+    static model Triangle = {};
+    // static GLuint CubeVAO = 0, CubeVBO = 0;
     if(!TriDataInitialized)
     {
+        Platform.CompileShader(&Shader.Handle, "shaders/Shader.glsl");
+
         r32 TriVertices[] = 
         {
             -0.5f, -0.5f, 0.0f,
             0.5f, -0.5f, 0.0f,
             0.0f, 0.5f, 0.0f
         };
+        
+        InitModel(&Triangle, sizeof(TriVertices), TriVertices, 3);
+
+#if 0
 
         glGenVertexArrays(1, &TriVAO);
         glGenBuffers(1, &TriVBO);
@@ -25,7 +59,8 @@ GameUpdateAndRender(game_input *Input, u32 WindowWidth, u32 WindowHeight)
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(r32), (void *)0);
         glBindVertexArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
-        
+#endif
+
         r32 CubeVertices[] = {
             // Back face
             -0.5f, -0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
@@ -70,6 +105,7 @@ GameUpdateAndRender(game_input *Input, u32 WindowWidth, u32 WindowHeight)
             -0.5f,  0.5f, -0.5f, 0.5f, 0.5f, 0.5f,
             -0.5f,  0.5f,  0.5f, 0.5f, 0.5f, 0.5f,
         };
+#if 0
         glGenVertexArrays(1, &CubeVAO);
         glGenBuffers(1, &CubeVBO);
         glBindVertexArray(CubeVAO);
@@ -81,7 +117,7 @@ GameUpdateAndRender(game_input *Input, u32 WindowWidth, u32 WindowHeight)
         glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(r32), (void *)(3*sizeof(r32)));
         glBindVertexArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
-
+#endif
         TriDataInitialized = true;
     }
 
@@ -148,7 +184,7 @@ GameUpdateAndRender(game_input *Input, u32 WindowWidth, u32 WindowHeight)
     mat4 Projection = Perspective(45.0f, (r32)WindowWidth/(r32)WindowHeight, 0.1f, 50.0f);
     mat4 View = ViewRotationMatrixFromDirection(-CameraOffsetFromHero) * Translation(-CameraOffsetFromHero);
     mat4 Model = Rotation(HeroRotation, vec3(0.0f, 1.0f, 0.0f));
-
+#if 0
     Shader.Use();
     Shader.SetMat4("Projection", Projection);
     Shader.SetMat4("View", View);
@@ -161,4 +197,13 @@ GameUpdateAndRender(game_input *Input, u32 WindowWidth, u32 WindowHeight)
     glBindVertexArray(TriVAO);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glBindVertexArray(0);
+#endif
+
+    PushShader(RenderCommandBuffer, Shader);
+    PushMat4(RenderCommandBuffer, "Projection", &Projection);
+    PushMat4(RenderCommandBuffer, "View", &View);
+    Model = Translation(vec3(0.0f, 0.0f, -3.0f));
+    PushMat4(RenderCommandBuffer, "Model", &Model);
+    Clear(RenderCommandBuffer, vec3(1.0f, 1.0f, 0.0f));
+    DrawModel(RenderCommandBuffer, &Triangle);
 }

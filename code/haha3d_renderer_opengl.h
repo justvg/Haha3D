@@ -5,6 +5,8 @@ class shader
     private:
         GLuint ID;
 
+        friend PLATFORM_COMPILE_SHADER(CompileShader);
+
     public:
         shader() {}
         shader(char *VSSourceCode, char *FSSourceCode); 

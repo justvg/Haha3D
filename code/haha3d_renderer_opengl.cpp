@@ -106,3 +106,66 @@ InitOpenGLProperties(void)
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
 }
+
+internal
+PLATFORM_INIT_BUFFERS(InitBuffers)
+{
+    GLuint *VAO = (GLuint *)Handle;
+    GLuint *VBO = (GLuint *)((u8 *)Handle + sizeof(GLuint));
+
+    glGenVertexArrays(1, VAO);
+    glGenBuffers(1, VBO);
+    glBindVertexArray(*VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, *VBO);
+    glBufferData(GL_ARRAY_BUFFER, Size, Vertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(r32), (void *)0);
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+} 
+
+PLATFORM_COMPILE_SHADER(CompileShader)
+{
+    shader Shader(ShaderFilepath);
+    *Handle = (void *)((u64)Shader.ID);
+}
+
+internal void
+RenderCommands(render_command_buffer *RenderCommandBuffer)
+{
+    for(u32 CommandIndex = 0;
+        CommandIndex < RenderCommandBuffer->CommandCount;
+        CommandIndex++)
+    {
+        render_command_buffer_entry *Command = RenderCommandBuffer->Entries + CommandIndex;
+
+        switch(Command->Type)
+        {
+            case RenderCommand_Clear:
+            {
+                glClearColor(Command->Color.x, Command->Color.y, Command->Color.z, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            } break;
+
+            case RenderCommand_DrawModel:
+            {
+                GLuint VAO = (GLuint)Command->Handle;
+                
+                glBindVertexArray(VAO);
+                glDrawArrays(GL_TRIANGLES, 0, Command->VertexCount);
+                glBindVertexArray(0);
+            } break;
+
+            case RenderCommand_PushShader:
+            {
+                RenderCommandBuffer->CurrentShaderID = (GLuint)Command->Handle;
+                glUseProgram(RenderCommandBuffer->CurrentShaderID);
+            } break;
+            
+            case RenderCommand_PushMat4:
+            {
+                glUniformMatrix4fv(glGetUniformLocation(RenderCommandBuffer->CurrentShaderID, (char *)Command->Name), 1, GL_FALSE, Command->Elements);
+            } break;
+        }
+    }
+}
