@@ -469,6 +469,8 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 
                 render_command_buffer RenderCommandBuffer;
                 RenderCommandBuffer.CommandCount = 0;
+                RenderCommandBuffer.CurrentShaderID = 0;
+                RenderCommandBuffer.ShadersStackTop = 0;
 
                 if(Game.UpdateAndRender)
                 {

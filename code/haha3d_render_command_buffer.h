@@ -5,6 +5,7 @@ enum render_command_type
     RenderCommand_Clear,
     RenderCommand_DrawModel,
     RenderCommand_PushShader,
+    RenderCommand_PopShader,
     RenderCommand_PushMat4,
 };
 
@@ -23,7 +24,7 @@ struct render_command_buffer_entry
         struct
         {
             char *Name;
-            r32 *Elements;
+            mat4 Matrix;
         };
     };
 
@@ -31,9 +32,12 @@ struct render_command_buffer_entry
 };
 
 #define MAX_RENDER_COMMAND_BUFFER_ENTRIES 1024
+#define MAX_RENDER_COMMAND_BUFFER_SHADERS_IN_STACK 128
 struct render_command_buffer
 {
     u32 CurrentShaderID;
+    u32 ShadersStackTop;
+    u32 ShadersStack[MAX_RENDER_COMMAND_BUFFER_SHADERS_IN_STACK];
 
     u32 CommandCount;
     render_command_buffer_entry Entries[MAX_RENDER_COMMAND_BUFFER_ENTRIES];

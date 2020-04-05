@@ -17,11 +17,11 @@ struct model
 };
 
 internal void
-InitModel(model *Model, u32 Size, r32 *Vertices, u32 VertexCount)
+InitModel(model *Model, u32 Size, r32 *Vertices, u32 VertexCount, u32 Stride)
 {
     Model->VertexCount = VertexCount;
 
-    Platform.InitBuffers(&Model->Handle, Size, Vertices);
+    Platform.InitBuffers(&Model->Handle, Size, Vertices, Stride);
 }
 
 #include "haha3d_render_command_buffer.cpp"
@@ -34,32 +34,19 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     static shader Shader;
     static b32 TriDataInitialized = false;
     static model Triangle = {};
-    // static GLuint CubeVAO = 0, CubeVBO = 0;
+    static model Cube = {};
     if(!TriDataInitialized)
     {
-        Platform.CompileShader(&Shader.Handle, "shaders/Shader.glsl");
+        Platform.CompileShader(&Shader.Handle, "shaders/shader.glsl");
 
         r32 TriVertices[] = 
         {
-            -0.5f, -0.5f, 0.0f,
-            0.5f, -0.5f, 0.0f,
-            0.0f, 0.5f, 0.0f
+            -0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 0.0f,
+            0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 0.0f,
+            0.0f, 0.5f, 0.0f, 0.0f, 1.0f, 0.0f,
         };
         
-        InitModel(&Triangle, sizeof(TriVertices), TriVertices, 3);
-
-#if 0
-
-        glGenVertexArrays(1, &TriVAO);
-        glGenBuffers(1, &TriVBO);
-        glBindVertexArray(TriVAO);
-        glBindBuffer(GL_ARRAY_BUFFER, TriVBO);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(TriVertices), TriVertices, GL_STATIC_DRAW);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(r32), (void *)0);
-        glBindVertexArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-#endif
+        InitModel(&Triangle, sizeof(TriVertices), TriVertices, 3, 6*sizeof(r32));
 
         r32 CubeVertices[] = {
             // Back face
@@ -105,19 +92,9 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             -0.5f,  0.5f, -0.5f, 0.5f, 0.5f, 0.5f,
             -0.5f,  0.5f,  0.5f, 0.5f, 0.5f, 0.5f,
         };
-#if 0
-        glGenVertexArrays(1, &CubeVAO);
-        glGenBuffers(1, &CubeVBO);
-        glBindVertexArray(CubeVAO);
-        glBindBuffer(GL_ARRAY_BUFFER, CubeVBO);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(CubeVertices), CubeVertices, GL_STATIC_DRAW);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(r32), (void *)0);
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(r32), (void *)(3*sizeof(r32)));
-        glBindVertexArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-#endif
+
+        InitModel(&Cube, sizeof(CubeVertices), CubeVertices, 36, 6*sizeof(r32));
+
         TriDataInitialized = true;
     }
 
@@ -184,26 +161,16 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     mat4 Projection = Perspective(45.0f, (r32)WindowWidth/(r32)WindowHeight, 0.1f, 50.0f);
     mat4 View = ViewRotationMatrixFromDirection(-CameraOffsetFromHero) * Translation(-CameraOffsetFromHero);
     mat4 Model = Rotation(HeroRotation, vec3(0.0f, 1.0f, 0.0f));
-#if 0
-    Shader.Use();
-    Shader.SetMat4("Projection", Projection);
-    Shader.SetMat4("View", View);
-    Shader.SetMat4("Model", Model);
-    glBindVertexArray(CubeVAO);
-    glDrawArrays(GL_TRIANGLES, 0, 36);
-    glBindVertexArray(0);
-    Model = Translation(vec3(0.0f, 0.0f, -3.0f));
-    Shader.SetMat4("Model", Model);
-    glBindVertexArray(TriVAO);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
-    glBindVertexArray(0);
-#endif
+
+    Clear(RenderCommandBuffer, vec3(1.0f, 1.0f, 0.0f));
 
     PushShader(RenderCommandBuffer, Shader);
     PushMat4(RenderCommandBuffer, "Projection", &Projection);
     PushMat4(RenderCommandBuffer, "View", &View);
+    PushMat4(RenderCommandBuffer, "Model", &Model);
+    DrawModel(RenderCommandBuffer, &Cube);
+
     Model = Translation(vec3(0.0f, 0.0f, -3.0f));
     PushMat4(RenderCommandBuffer, "Model", &Model);
-    Clear(RenderCommandBuffer, vec3(1.0f, 1.0f, 0.0f));
     DrawModel(RenderCommandBuffer, &Triangle);
 }

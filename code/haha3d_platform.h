@@ -64,7 +64,7 @@ WasDown(button *Button)
     return(Result);
 }
 
-#define PLATFORM_INIT_BUFFERS(name) void name(void **Handle, u32 Size, r32 *Vertices)
+#define PLATFORM_INIT_BUFFERS(name) void name(void **Handle, u32 Size, r32 *Vertices, u32 Stride)
 typedef PLATFORM_INIT_BUFFERS(platform_init_buffers);
 
 #define PLATFORM_COMPILE_SHADER(name) void name(void **Handle, char *ShaderFilepath)

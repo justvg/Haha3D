@@ -1,5 +1,3 @@
-#include "haha3d_render_command_buffer.h"
-
 inline b32
 HasRoomForCommand(render_command_buffer *RenderCommandBuffer)
 {
@@ -57,12 +55,18 @@ PushShader(render_command_buffer *RenderCommandBuffer, shader Shader)
 }
 
 inline void
+PopShader(render_command_buffer *RenderCommandBuffer)
+{
+    PushCommand(RenderCommandBuffer, RenderCommand_PopShader);
+}
+
+inline void
 PushMat4(render_command_buffer *RenderCommandBuffer, char *Name, mat4 *Matrix)
 {
     render_command_buffer_entry *Entry = PushCommand(RenderCommandBuffer, RenderCommand_PushMat4);
     if(Entry)
     {
         Entry->Name = Name;
-        Entry->Elements = Matrix->E;
+        Entry->Matrix = *Matrix;
     }
 }
