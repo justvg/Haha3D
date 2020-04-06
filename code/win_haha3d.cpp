@@ -11,6 +11,7 @@
 
 global_variable b32 GlobalRunning;
 global_variable b32 GlobalWindowIsFocused;
+global_variable LARGE_INTEGER GlobalPerformanceFrequency;
 
 internal void
 CatStrings(u32 ALength, char *SourceA, u32 BLength, char *SourceB, u32 DestSize, char *Dest)
@@ -258,9 +259,26 @@ WinProcessKey(button *Button, b32 IsDown)
     Button->EndedDown = IsDown;
 }
 
+inline LARGE_INTEGER
+WinGetPerformanceCounter(void)
+{
+    LARGE_INTEGER Result;
+    QueryPerformanceCounter(&Result);
+    return(Result);
+}
+
+inline r32
+WinGetSecondsElapsed(LARGE_INTEGER Start, LARGE_INTEGER End)
+{
+    r32 Result = (End.QuadPart - Start.QuadPart) / (r32)GlobalPerformanceFrequency.QuadPart;
+    return(Result);
+}
+
 int CALLBACK
 WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowCode)
 {
+    QueryPerformanceCounter(&GlobalPerformanceFrequency);
+
     char ExecutableFilename[MAX_PATH];
     char *OneAfterLastExecutableFilenameSlash = 0;
     DWORD ExecutableFilenameLength = GetModuleFileName(0, ExecutableFilename, sizeof(ExecutableFilename));
@@ -340,7 +358,17 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
             PlatformAPI.InitBuffers = InitBuffers;
             PlatformAPI.CompileShader = CompileShader;
 
+            game_memory GameMemory = {};
+
+            GameMemory.PermanentStorageSize = Megabytes(256);
+            GameMemory.PermanentStorage = VirtualAlloc(0, GameMemory.PermanentStorageSize, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+
+            GameMemory.PlatformAPI = PlatformAPI;
+
             win_game_code Game = WinLoadGameCode(GameCodeSourceDLLName, GameCodeTempDLLName);
+            
+            GameInput.dtForFrame = 1.0f / 60.0f;
+            LARGE_INTEGER LastCounter = WinGetPerformanceCounter();
 			while(GlobalRunning)
 			{
                 if(GlobalWindowIsFocused)
@@ -474,7 +502,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 
                 if(Game.UpdateAndRender)
                 {
-                    Game.UpdateAndRender(&GameInput, &RenderCommandBuffer, WindowWidth, WindowHeight, PlatformAPI);
+                    Game.UpdateAndRender(&GameMemory, &GameInput, &RenderCommandBuffer, WindowWidth, WindowHeight);
                 }
 
                 HDC WindowDC = GetDC(Window);
@@ -488,6 +516,13 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
                 {
                     WinUnloadGameCode(&Game);
                     Game = WinLoadGameCode(GameCodeSourceDLLName, GameCodeTempDLLName);
+                }
+
+                LARGE_INTEGER FrameEndCounter = WinGetPerformanceCounter();
+                GameInput.dtForFrame = WinGetSecondsElapsed(LastCounter, FrameEndCounter);
+                if(GameInput.dtForFrame < (1.0f / 500.0f))
+                {
+                    GameInput.dtForFrame = (1.0f / 500.0f);
                 }
 			}
         }

@@ -20,6 +20,10 @@ typedef int32_t b32;
 typedef float r32;
 typedef double r64;
 
+#define Kilobytes(Value) ((Value) * 1024LL)
+#define Megabytes(Value) (Kilobytes(Value) * 1024LL)
+#define Gigabytes(Value) (Gigabytes(Value) * 1024LL)
+
 #define Assert(Expression) if(!(Expression)) { *(int *)0 = 0; }
 #define ArrayCount(Array) (sizeof(Array)/sizeof((Array)[0]))
 
@@ -53,6 +57,8 @@ struct game_input
             button Alt;
         };
     };
+
+    r32 dtForFrame;
 };
 
 inline b32
@@ -76,5 +82,13 @@ struct platform_api
     platform_compile_shader *CompileShader;
 };
 
-#define GAME_UPDATE_AND_RENDER(name) void name(game_input *Input, render_command_buffer *RenderCommandBuffer, u32 WindowWidth, u32 WindowHeight, platform_api PlatformAPI)
+struct game_memory
+{
+    u64 PermanentStorageSize;
+    void *PermanentStorage;
+
+    platform_api PlatformAPI;
+};
+
+#define GAME_UPDATE_AND_RENDER(name) void name(game_memory *Memory, game_input *Input, render_command_buffer *RenderCommandBuffer, u32 WindowWidth, u32 WindowHeight)
 typedef GAME_UPDATE_AND_RENDER(game_update_and_render);

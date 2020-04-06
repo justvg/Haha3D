@@ -1,52 +1,25 @@
-#include "haha3d_platform.h"
-#include "haha3d_intrinsics.h"
+#include "haha3d.h"
 #include "haha3d_math.cpp"
-
-platform_api Platform;
-
-struct shader
-{
-    void *Handle;
-};
-
-struct model
-{
-    u32 VertexCount;
-
-    void *Handle;
-};
-
-internal void
-InitModel(model *Model, u32 Size, r32 *Vertices, u32 VertexCount, u32 Stride)
-{
-    Model->VertexCount = VertexCount;
-
-    Platform.InitBuffers(&Model->Handle, Size, Vertices, Stride);
-}
-
 #include "haha3d_render_command_buffer.cpp"
+
+mat4 
+camera::GetRotationMatrix(void)
+{ 
+    mat4 Result = LookAt(P, P + Dir); 
+
+    return(Result);
+} 
 
 extern "C" 
 GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
-    Platform = PlatformAPI;
+    Platform = Memory->PlatformAPI;
 
-    static shader Shader;
-    static b32 TriDataInitialized = false;
-    static model Triangle = {};
-    static model Cube = {};
-    if(!TriDataInitialized)
+    Assert(sizeof(game_state) <= Memory->PermanentStorageSize);
+    game_state *GameState = (game_state *)Memory->PermanentStorage;
+    if(!GameState->IsInitialized)
     {
-        Platform.CompileShader(&Shader.Handle, "shaders/shader.glsl");
-
-        r32 TriVertices[] = 
-        {
-            -0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 0.0f,
-            0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 0.0f,
-            0.0f, 0.5f, 0.0f, 0.0f, 1.0f, 0.0f,
-        };
-        
-        InitModel(&Triangle, sizeof(TriVertices), TriVertices, 3, 6*sizeof(r32));
+        Platform.CompileShader(&GameState->Shader.Handle, "shaders/shader.glsl");
 
         r32 CubeVertices[] = {
             // Back face
@@ -93,22 +66,37 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             -0.5f,  0.5f,  0.5f, 0.5f, 0.5f, 0.5f,
         };
 
-        InitModel(&Cube, sizeof(CubeVertices), CubeVertices, 36, 6*sizeof(r32));
+        InitModel(&GameState->Cube, sizeof(CubeVertices), CubeVertices, 36, 6*sizeof(r32));
 
-        TriDataInitialized = true;
+        r32 PlaneVertices[] = 
+        {
+            -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+            -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+            1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+
+            1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+            -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+            1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+        };
+
+        InitModel(&GameState->Plane, sizeof(PlaneVertices), PlaneVertices, 6, 6*sizeof(r32));
+
+        GameState->IsInitialized = true;
     }
 
-    static r32 CameraPitch = 0.0f;
-    static r32 CameraHead = 0.0f;
+    r32 dt = Input->dtForFrame;
+
+    camera *Camera = &GameState->Camera;
+
     r32 CameraRotationSensetivity = 0.1f;
-    CameraPitch -= Input->MouseYDisplacement*CameraRotationSensetivity;
-    CameraHead -= Input->MouseXDisplacement*CameraRotationSensetivity;
+    Camera->CameraPitch -= Input->MouseYDisplacement*CameraRotationSensetivity;
+    Camera->CameraHead -= Input->MouseXDisplacement*CameraRotationSensetivity;
 
-    CameraPitch = CameraPitch > 89.0f ? 89.0f : CameraPitch;
-    CameraPitch = CameraPitch < -89.0f ? -89.0f : CameraPitch;
+    Camera->CameraPitch = Camera->CameraPitch > 89.0f ? 89.0f : Camera->CameraPitch;
+    Camera->CameraPitch = Camera->CameraPitch < -89.0f ? -89.0f : Camera->CameraPitch;
 
-    r32 PitchRadians = Radians(CameraPitch);
-    r32 HeadRadians = Radians(CameraHead);
+    r32 PitchRadians = Radians(Camera->CameraPitch);
+    r32 HeadRadians = Radians(Camera->CameraHead);
 
     r32 CameraDistanceFromHero = 5.0f;
     r32 FloorDistanceFromHero = CameraDistanceFromHero * Cos(-PitchRadians);
@@ -118,59 +106,66 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     r32 ZOffsetFromHero = FloorDistanceFromHero * Cos(HeadRadians);
     vec3 CameraOffsetFromHero = vec3(XOffsetFromHero, YOffsetFromHero, ZOffsetFromHero);
 
-    static r32 HeroRotation = 0.0f;
-
-    r32 Theta = Degrees(ATan2(-CameraOffsetFromHero.z, -CameraOffsetFromHero.x)) - 90.0f;
+    vec3 CameraForward = Normalize(-CameraOffsetFromHero);
+    vec3 CameraRight = Normalize(Cross(CameraForward, vec3(0.0f, 1.0f, 1.0f)));
+    r32 Theta = Degrees(ATan2(CameraForward.z, CameraForward.x)) - 90.0f;
     if(Input->MoveForward.EndedDown)
     {
-        HeroRotation = Theta;
+        GameState->HeroRotation = Theta;
+        GameState->HeroP += 20.0f*dt*CameraForward;
     }
     if(Input->MoveBack.EndedDown)
     {
-        HeroRotation = Theta + 180.0f;
+        GameState->HeroRotation = Theta + 180.0f;
+        GameState->HeroP += 20.0f*dt*-CameraForward;
     }
     if(Input->MoveRight.EndedDown)
     {
-        HeroRotation = Theta - 90.0f;
+        GameState->HeroRotation = Theta - 90.0f;
+        GameState->HeroP += 20.0f*dt*CameraRight;
     }
     if(Input->MoveLeft.EndedDown)
     {
-        HeroRotation = Theta + 90.0f;
+        GameState->HeroRotation = Theta + 90.0f;
+        GameState->HeroP += 20.0f*dt*-CameraRight;
     }
     if(Input->MoveForward.EndedDown && 
         Input->MoveRight.EndedDown)
     {
-        HeroRotation = Theta - 45.0f;
+        GameState->HeroRotation = Theta - 45.0f;
     }
     if(Input->MoveForward.EndedDown && 
         Input->MoveLeft.EndedDown)
     {
-        HeroRotation = Theta + 45.0f;
+        GameState->HeroRotation = Theta + 45.0f;
     }
     if(Input->MoveBack.EndedDown && 
         Input->MoveRight.EndedDown)
     {
-        HeroRotation = Theta - 135.0f;
+        GameState->HeroRotation = Theta - 135.0f;
     }
     if(Input->MoveBack.EndedDown && 
         Input->MoveLeft.EndedDown)
     {
-        HeroRotation = Theta + 135.0f;
+        GameState->HeroRotation = Theta + 135.0f;
     }
+
+    Camera->P = GameState->HeroP + CameraOffsetFromHero;
+    Camera->Dir = CameraForward;
 
     mat4 Projection = Perspective(45.0f, (r32)WindowWidth/(r32)WindowHeight, 0.1f, 50.0f);
-    mat4 View = ViewRotationMatrixFromDirection(-CameraOffsetFromHero) * Translation(-CameraOffsetFromHero);
-    mat4 Model = Rotation(HeroRotation, vec3(0.0f, 1.0f, 0.0f));
+    mat4 View = Camera->GetRotationMatrix();
+    mat4 Model = Translation(GameState->HeroP) * Rotation(GameState->HeroRotation, vec3(0.0f, 1.0f, 0.0f));
 
-    Clear(RenderCommandBuffer, vec3(1.0f, 1.0f, 0.0f));
+    Clear(RenderCommandBuffer, vec3(0.5f, 0.0f, 0.0f));
 
-    PushShader(RenderCommandBuffer, Shader);
+    PushShader(RenderCommandBuffer, GameState->Shader);
     PushMat4(RenderCommandBuffer, "Projection", &Projection);
     PushMat4(RenderCommandBuffer, "View", &View);
     PushMat4(RenderCommandBuffer, "Model", &Model);
-    DrawModel(RenderCommandBuffer, &Cube);
+    DrawModel(RenderCommandBuffer, &GameState->Cube);
 
-    Model = Translation(vec3(0.0f, 0.0f, -3.0f));
+    Model = Translation(vec3(0.0f, -2.0f, 0.0f)) * Rotation(-90.0f, vec3(1.0f, 0.0f, 0.0f)) * Scaling(6.0f);
     PushMat4(RenderCommandBuffer, "Model", &Model);
-    DrawModel(RenderCommandBuffer, &Triangle);
+    DrawModel(RenderCommandBuffer, &GameState->Plane);
 }

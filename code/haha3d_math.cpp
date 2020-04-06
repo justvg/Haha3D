@@ -89,6 +89,14 @@ operator+= (vec2 &A, vec2 B)
 }
 
 inline vec2 &
+operator-= (vec2 &A, vec2 B)
+{
+    A = A - B;
+    
+    return(A);
+}
+
+inline vec2 &
 operator*= (vec2 &A, r32 B)
 {
     A = A * B;
@@ -211,6 +219,14 @@ inline vec3 &
 operator+= (vec3 &A, vec3 B)
 {
     A = A + B;
+    
+    return(A);
+}
+
+inline vec3 &
+operator-= (vec3 &A, vec3 B)
+{
+    A = A - B;
     
     return(A);
 }
@@ -356,6 +372,14 @@ inline vec4 &
 operator+= (vec4 &A, vec4 B)
 {
     A = A + B;
+    
+    return(A);
+}
+
+inline vec4 &
+operator-= (vec4 &A, vec4 B)
+{
+    A = A - B;
     
     return(A);
 }
