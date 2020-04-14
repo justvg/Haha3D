@@ -220,8 +220,6 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     GameState->HeroQuad.RigidBody.ForceAccumulated = vec2(0.0f, 0.0f);
     GameState->HeroQuad.RigidBody.TorqueAccumulated = 0.0f;
 
-    GameState->HeroQuad.RigidBody.ForceAccumulated += (1.0f / GameState->HeroQuad.RigidBody.Mass) * vec2(0.0f, -9.8f);
-
     static b32 ForceActsOnCM = true;
     if(WasDown(&Input->MouseLeft))
     {
@@ -301,14 +299,28 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     DrawModel(RenderCommandBuffer, &GameState->Cube);
 #else
 
-    plane Plane = {vec2(0.0f, 1.0f), -0.4f};
+    plane Planes[4] = 
+    {
+        {vec2(0.0f, 1.0f), -0.4f},
+        {vec2(-1.0f, 0.0f), -0.8f},
+        {vec2(0.0f, -1.0f), -0.4f},
+        {vec2(1.0f, 0.0f), -0.8f},
+    };
+
+    if(Length(HeroRigidBody->dP) > 0.0f)
+    {
+        HeroRigidBody->ForceAccumulated += -0.5f*Normalize(HeroRigidBody->dP)*LengthSq(HeroRigidBody->dP)*1.5f;
+    }
+    if(Absolute(HeroRigidBody->AngularSpeed) > 0.0f)
+    {
+        HeroRigidBody->TorqueAccumulated += -0.5f*Square(HeroRigidBody->AngularSpeed)*0.001f;
+    }
 
     HeroRigidBody->dP += dt*((HeroRigidBody->ForceAccumulated*(1.0f / HeroRigidBody->Mass)));
     HeroRigidBody->AngularSpeed += dt*(HeroRigidBody->TorqueAccumulated / HeroRigidBody->MomentOfInertia);
     HeroRigidBody->Orientation += dt*Degrees(HeroRigidBody->AngularSpeed);
     HeroOrientationAxisX = vec2(Cos(Radians(HeroRigidBody->Orientation)), Sin(Radians(HeroRigidBody->Orientation)));
     HeroOrientationAxisY = Perp(HeroOrientationAxisX);
-    r32 Radius = (HeroHalfWidth*Absolute(Dot(HeroOrientationAxisX, Plane.N)) + HeroHalfHeight*Absolute(Dot(HeroOrientationAxisY, Plane.N)));
 
     vec2 HeroDeltaP = dt*HeroRigidBody->dP;
     r32 dtRemaining = dt;
@@ -321,40 +333,56 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         {
             r32 t = 1.0f;
             vec2 PointOfContact;
+            vec2 CollisionNormal;
             b32 Collision = false;
             vec2 DesiredP = HeroRigidBody->P + HeroDeltaP;
 
-            r32 DistFromHeroCenterToPlane = Dot(Plane.N, HeroRigidBody->P) - Plane.D;
-            if(Absolute(DistFromHeroCenterToPlane) < Radius)
+            for(u32 PlaneIndex = 0;
+                PlaneIndex < ArrayCount(Planes);
+                PlaneIndex++)
             {
-                // NOTE(georgy): Penetration
-                HeroRigidBody->P += (Radius - Absolute(DistFromHeroCenterToPlane) + 0.001f)*Plane.N;
-                DistFromHeroCenterToPlane = Dot(Plane.N, HeroRigidBody->P) - Plane.D;
+                plane *Plane = Planes + PlaneIndex;
+                b32 CollisionWithPlane = false;
 
-                Assert(Absolute(DistFromHeroCenterToPlane) >= Radius);
-            }   
+                r32 Radius = (HeroHalfWidth*Absolute(Dot(HeroOrientationAxisX, Plane->N)) + HeroHalfHeight*Absolute(Dot(HeroOrientationAxisY, Plane->N)));
+                r32 DistFromHeroCenterToPlane = Dot(Plane->N, HeroRigidBody->P) - Plane->D;
+                if(Absolute(DistFromHeroCenterToPlane) < Radius)
+                {
+                    // NOTE(georgy): Penetration
+                    HeroRigidBody->P += (Radius - Absolute(DistFromHeroCenterToPlane) + 0.001f)*Plane->N;
+                    DistFromHeroCenterToPlane = Dot(Plane->N, HeroRigidBody->P) - Plane->D;
 
-            {
-                r32 Denom = Dot(Plane.N, HeroDeltaP);
-                if((Denom * DistFromHeroCenterToPlane) >= 0.0f)
+                    Assert(Absolute(DistFromHeroCenterToPlane) >= Radius);
+                }   
+
                 {
-                    // NOTE(georgy): Moving parallel to or away from the plane
-                    Collision = false;
-                }
-                else
-                {
-                    r32 PlaneDisplace = (DistFromHeroCenterToPlane > 0.0f) ? Radius : -Radius;
-                    r32 NewT = (PlaneDisplace - DistFromHeroCenterToPlane) / Denom;
-                    if((NewT <= t) && (NewT >= 0.0f))
+                    r32 Denom = Dot(Plane->N, HeroDeltaP);
+                    if((Denom * DistFromHeroCenterToPlane) >= 0.0f)
                     {
-                        t = NewT - 0.1f;
-                        if(t < 0.0f) t = NewT;
-                        Collision = true;
-
-                        PointOfContact = GetPointOfContact(HeroRigidBody, t, HeroDeltaP, 
-                                                        HeroHalfWidth, HeroOrientationAxisX, HeroHalfHeight, HeroOrientationAxisY,
-                                                        Plane, Radius);
+                        // NOTE(georgy): Moving parallel to or away from the plane
+                        CollisionWithPlane = false;
                     }
+                    else
+                    {
+                        r32 PlaneDisplace = (DistFromHeroCenterToPlane > 0.0f) ? Radius : -Radius;
+                        r32 NewT = (PlaneDisplace - DistFromHeroCenterToPlane) / Denom;
+                        if((NewT <= t) && (NewT >= 0.0f))
+                        {
+                            t = NewT - 0.1f;
+                            if(t < 0.0f) t = NewT;
+                            CollisionWithPlane = true;
+
+                            PointOfContact = GetPointOfContact(HeroRigidBody, t, HeroDeltaP, 
+                                                               HeroHalfWidth, HeroOrientationAxisX, HeroHalfHeight, HeroOrientationAxisY,
+                                                               *Plane, Radius);
+                            CollisionNormal = Plane->N;
+                        }
+                    }
+                }
+
+                if(CollisionWithPlane) 
+                {
+                    Collision = true;
                 }
             }
 
@@ -371,14 +399,14 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                 
                 vec2 Velocity = HeroRigidBody->dP + HeroRigidBody->AngularSpeed*PointRotationDir;
 
-                r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(Velocity, Plane.N);
-                r32 ImpulseDenom = Dot(Plane.N, Plane.N)*OneOverMass + 
-                                        OneOverMomentOfInertia*Square(Dot(PointRotationDir, Plane.N));
+                r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(Velocity, CollisionNormal);
+                r32 ImpulseDenom = Dot(CollisionNormal, CollisionNormal)*OneOverMass + 
+                                        OneOverMomentOfInertia*Square(Dot(PointRotationDir, CollisionNormal));
 
                 r32 ImpulseMagnitude = ImpulseNom / ImpulseDenom;
             
-                HeroRigidBody->dP += (ImpulseMagnitude * OneOverMass)*Plane.N;
-                HeroRigidBody->AngularSpeed += Dot(PointRotationDir, ImpulseMagnitude*Plane.N) * OneOverMomentOfInertia;
+                HeroRigidBody->dP += (ImpulseMagnitude * OneOverMass)*CollisionNormal;
+                HeroRigidBody->AngularSpeed += Dot(PointRotationDir, ImpulseMagnitude*CollisionNormal) * OneOverMomentOfInertia;
 
                 HeroDeltaP = dtRemaining*HeroRigidBody->dP;
             }
@@ -391,7 +419,10 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     Model = Identity();
     PushMat4(RenderCommandBuffer, "Model", &Model);
-    DrawLine(RenderCommandBuffer, vec3(-1.0f, Plane.D, 0.0f), vec3(1.0f, -0.4f, 0.0f));
+    DrawLine(RenderCommandBuffer, vec3(-1.0f, Planes[0].D*Planes[0].N.y, 0.0f), vec3(1.0f, Planes[0].D*Planes[0].N.y, 0.0f));
+    DrawLine(RenderCommandBuffer, vec3(Planes[1].D*Planes[1].N.x, -1.0f, 0.0f), vec3(Planes[1].D*Planes[1].N.x, 1.0f, 0.0f));
+    DrawLine(RenderCommandBuffer, vec3(-1.0f, Planes[2].D*Planes[2].N.y, 0.0f), vec3(1.0f, Planes[2].D*Planes[2].N.y, 0.0f));
+    DrawLine(RenderCommandBuffer, vec3(Planes[3].D*Planes[3].N.x, -1.0f, 0.0f), vec3(Planes[3].D*Planes[3].N.x, 1.0f, 0.0f));
 
 #endif
 }
