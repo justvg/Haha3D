@@ -35,13 +35,37 @@ class camera
         mat4 GetRotationMatrix(void);
 };
 
+struct rigid_body
+{
+    vec2 ForceAccumulated;
+    r32 TorqueAccumulated;
+
+    // NOTE(georgy): Linear 
+    r32 Mass;
+    vec2 dP;
+    vec2 P; // NOTE(georgy): This is center of mass in world coordinates
+
+    // NOTE(georgy): Angular
+    r32 MomentOfInertia;
+    r32 Orientation; 
+    r32 AngularSpeed;
+};
+struct game_object
+{
+    rigid_body RigidBody;
+};
+
 struct game_state
 {
     shader Shader;
 
     r32 HeroRotation;
     vec3 HeroP;
-    model Cube, Plane;
+    model Cube, Quad;
+
+    mat4 CubeOrientation;
+
+    game_object HeroQuad;
 
     camera Camera;
 

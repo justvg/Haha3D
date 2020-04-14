@@ -148,6 +148,22 @@ Normalize(vec2 A)
 }
 
 inline vec2
+Perp(vec2 A)
+{
+    vec2 Result = vec2(-A.y, A.x);
+    
+    return(Result);
+}
+
+inline r32
+Cross2D(vec2 A, vec2 B)
+{
+    r32 Result = Dot(Perp(A), B);
+
+    return(Result);
+}
+
+inline vec2
 Lerp(vec2 A, vec2 B, r32 t)
 {
     vec2 Result = A + (B - A)*t;
@@ -444,6 +460,16 @@ Lerp(vec4 A, vec4 B, r32 t)
 
     return(Result);
 }
+
+// 
+// NOTE(georgy): plane
+// 
+
+struct plane
+{
+    vec2 N;
+    r32 D;
+};
 
 // 
 // NOTE(georgy): mat3

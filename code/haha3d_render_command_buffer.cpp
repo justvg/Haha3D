@@ -70,3 +70,14 @@ PushMat4(render_command_buffer *RenderCommandBuffer, char *Name, mat4 *Matrix)
         Entry->Matrix = *Matrix;
     }
 }
+
+inline void
+DrawLine(render_command_buffer *RenderCommandBuffer, vec3 From, vec3 To)
+{
+    render_command_buffer_entry *Entry = PushCommand(RenderCommandBuffer, RenderCommand_DrawLine);
+    if(Entry)
+    {
+        Entry->From = From;
+        Entry->To = To;
+    }
+}

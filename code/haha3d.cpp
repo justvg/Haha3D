@@ -10,6 +10,64 @@ camera::GetRotationMatrix(void)
     return(Result);
 } 
 
+internal vec2
+GetPointOfContact(rigid_body *RigidBody, r32 t, vec2 DeltaP, 
+                  r32 HalfWidth, vec2 OrientationX, r32 HalfHeight, vec2 OrientationY,
+                  plane Plane, r32 Radius)
+{
+    vec2 RigidBodyCorners[4];
+    RigidBodyCorners[0] = RigidBody->P + t*DeltaP + 
+        (HalfWidth*OrientationX + HalfHeight*OrientationY);
+    RigidBodyCorners[1] = RigidBody->P + t*DeltaP + 
+        (HalfWidth*OrientationX - HalfHeight*OrientationY);
+    RigidBodyCorners[2] = RigidBody->P + t*DeltaP + 
+        (-HalfWidth*OrientationX - HalfHeight*OrientationY);
+    RigidBodyCorners[3] = RigidBody->P + t*DeltaP + 
+        (-HalfWidth*OrientationX + HalfHeight*OrientationY);
+
+    u32 ClosestCount = 0;
+    u32 ClosestIndecies[4];
+
+    u32 TheClosestToPlaneIndex = 0;
+    r32 ClosestDistance = Absolute(Dot(RigidBodyCorners[0], Plane.N) - Plane.D);
+
+    ClosestIndecies[ClosestCount++] = TheClosestToPlaneIndex;
+
+    for(u32 Corner = 1;
+        Corner < 4;
+        Corner++)
+    {
+        r32 Distance = Absolute(Dot(RigidBodyCorners[Corner], Plane.N) - Plane.D);
+        r32 Diff = ClosestDistance - Distance;
+        if(Absolute(Diff) <= Radius*0.1f)
+        {
+            ClosestIndecies[ClosestCount++] = Corner;
+        }
+        else if(Diff > 0.0f)
+        {
+            TheClosestToPlaneIndex = Corner;
+            ClosestDistance = Distance;
+
+            ClosestCount = 0;
+            ClosestIndecies[ClosestCount++] = Corner;
+        }
+    }
+
+    Assert(ClosestCount <= 2);
+
+    vec2 PointOfContact;
+    if(ClosestCount == 2)
+    {
+        PointOfContact = Lerp(RigidBodyCorners[ClosestIndecies[0]], RigidBodyCorners[ClosestIndecies[1]], 0.5f);
+    }
+    else
+    {
+        PointOfContact = RigidBodyCorners[TheClosestToPlaneIndex];
+    }
+
+    return(PointOfContact);
+}
+
 extern "C" 
 GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
@@ -68,18 +126,23 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         InitModel(&GameState->Cube, sizeof(CubeVertices), CubeVertices, 36, 6*sizeof(r32));
 
-        r32 PlaneVertices[] = 
+        r32 QuadVertices[] = 
         {
-            -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
-            -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
-            1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+            -0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f,
+            -0.5f, -0.5f, 0.0f, 1.0f, 1.0f, 1.0f,
+            0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f,
 
-            1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
-            -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
-            1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
+            0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f,
+            -0.5f, -0.5f, 0.0f, 1.0f, 1.0f, 1.0f,
+            0.5f, -0.5f, 0.0f, 1.0f, 1.0f, 1.0f,
         };
 
-        InitModel(&GameState->Plane, sizeof(PlaneVertices), PlaneVertices, 6, 6*sizeof(r32));
+        InitModel(&GameState->Quad, sizeof(QuadVertices), QuadVertices, 6, 6*sizeof(r32));
+
+        GameState->CubeOrientation = Identity();
+
+        GameState->HeroQuad.RigidBody.Mass = 3.0f;
+        GameState->HeroQuad.RigidBody.MomentOfInertia = (1.0f / 12.0f) * GameState->HeroQuad.RigidBody.Mass * (0.05f*0.05f+ 0.1f*0.1f);
 
         GameState->IsInitialized = true;
     }
@@ -87,7 +150,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     r32 dt = Input->dtForFrame;
 
     camera *Camera = &GameState->Camera;
-
+#if 0
     r32 CameraRotationSensetivity = 0.1f;
     Camera->CameraPitch -= Input->MouseYDisplacement*CameraRotationSensetivity;
     Camera->CameraHead -= Input->MouseXDisplacement*CameraRotationSensetivity;
@@ -152,20 +215,183 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     Camera->P = GameState->HeroP + CameraOffsetFromHero;
     Camera->Dir = CameraForward;
+#else
 
+    GameState->HeroQuad.RigidBody.ForceAccumulated = vec2(0.0f, 0.0f);
+    GameState->HeroQuad.RigidBody.TorqueAccumulated = 0.0f;
+
+    GameState->HeroQuad.RigidBody.ForceAccumulated += (1.0f / GameState->HeroQuad.RigidBody.Mass) * vec2(0.0f, -9.8f);
+
+    static b32 ForceActsOnCM = true;
+    if(WasDown(&Input->MouseLeft))
+    {
+        ForceActsOnCM = !ForceActsOnCM;
+    }
+
+    rigid_body *HeroRigidBody = &GameState->HeroQuad.RigidBody;
+    r32 HeroWidth = 0.1f;
+    r32 HeroHeight = 0.05f;
+    r32 HeroHalfWidth = 0.5f*HeroWidth;
+    r32 HeroHalfHeight = 0.5f*HeroHeight;
+    vec2 HeroOrientationAxisX = vec2(Cos(Radians(HeroRigidBody->Orientation)), Sin(Radians(HeroRigidBody->Orientation)));
+    vec2 HeroOrientationAxisY = Perp(HeroOrientationAxisX);
+
+    // NOTE(georgy): At the moment these forces are acting only on the CM of the hero
+    if(Input->MoveForward.EndedDown)
+    {
+        vec2 Force = 200.0f*vec2(0.0f, 1.0f);
+        HeroRigidBody->ForceAccumulated += Force;
+        if(!ForceActsOnCM)
+        {
+            HeroRigidBody->TorqueAccumulated += Cross2D(HeroHalfHeight*HeroOrientationAxisY + 0.2f*HeroHalfWidth*HeroOrientationAxisX, Force);
+        }
+    }
+    if(Input->MoveBack.EndedDown)
+    {
+        vec2 Force = -200.0f*vec2(0.0f, 1.0f);
+        HeroRigidBody->ForceAccumulated += Force;
+        if(!ForceActsOnCM)
+        {
+            HeroRigidBody->TorqueAccumulated += Cross2D(-HeroHalfHeight*HeroOrientationAxisY - 0.2f*HeroHalfWidth*HeroOrientationAxisX, Force);
+        }
+    }
+    if(Input->MoveRight.EndedDown)
+    {
+        vec2 Force = 200.0f*vec2(1.0f, 0.0f);
+        HeroRigidBody->ForceAccumulated += Force;
+        if(!ForceActsOnCM)
+        {
+            HeroRigidBody->TorqueAccumulated += Cross2D(-HeroHalfWidth*HeroOrientationAxisX + 0.2f*HeroHalfHeight*HeroOrientationAxisY, Force);
+        }
+    }
+    if(Input->MoveLeft.EndedDown)
+    {
+        vec2 Force = -200.0f*vec2(1.0f, 0.0f);
+        HeroRigidBody->ForceAccumulated += Force;
+        if(!ForceActsOnCM)
+        {
+            HeroRigidBody->TorqueAccumulated += Cross2D(HeroHalfWidth*HeroOrientationAxisX - 0.2f*HeroHalfHeight*HeroOrientationAxisY, Force);
+        }
+    }
+
+    Camera->P = vec3(0.0f, 0.0f, 1.0f);
+    Camera->Dir = vec3(0.0f, 0.0f, -1.0f);
+
+#endif
     mat4 Projection = Perspective(45.0f, (r32)WindowWidth/(r32)WindowHeight, 0.1f, 50.0f);
     mat4 View = Camera->GetRotationMatrix();
-    mat4 Model = Translation(GameState->HeroP) * Rotation(GameState->HeroRotation, vec3(0.0f, 1.0f, 0.0f));
 
-    Clear(RenderCommandBuffer, vec3(0.5f, 0.0f, 0.0f));
+    Clear(RenderCommandBuffer, vec3(1.0f, 0.0f, 0.0f));
 
     PushShader(RenderCommandBuffer, GameState->Shader);
     PushMat4(RenderCommandBuffer, "Projection", &Projection);
     PushMat4(RenderCommandBuffer, "View", &View);
+#if 0
+    mat4 Model = Translation(GameState->HeroP) * Rotation(GameState->HeroRotation, vec3(0.0f, 1.0f, 0.0f));
     PushMat4(RenderCommandBuffer, "Model", &Model);
     DrawModel(RenderCommandBuffer, &GameState->Cube);
 
     Model = Translation(vec3(0.0f, -2.0f, 0.0f)) * Rotation(-90.0f, vec3(1.0f, 0.0f, 0.0f)) * Scaling(6.0f);
     PushMat4(RenderCommandBuffer, "Model", &Model);
     DrawModel(RenderCommandBuffer, &GameState->Plane);
+
+    GameState->CubeOrientation = Rotation(dt*180.0f, vec3(0.0f, 1.0f, 0.0f)) * GameState->CubeOrientation;
+    Model = Translation(vec3(0.0f, -1.5f, 0.0f)) * GameState->CubeOrientation;
+    PushMat4(RenderCommandBuffer, "Model", &Model);
+    DrawModel(RenderCommandBuffer, &GameState->Cube);
+#else
+
+    plane Plane = {vec2(0.0f, 1.0f), -0.4f};
+
+    HeroRigidBody->dP += dt*((HeroRigidBody->ForceAccumulated*(1.0f / HeroRigidBody->Mass)));
+    HeroRigidBody->AngularSpeed += dt*(HeroRigidBody->TorqueAccumulated / HeroRigidBody->MomentOfInertia);
+    HeroRigidBody->Orientation += dt*Degrees(HeroRigidBody->AngularSpeed);
+    HeroOrientationAxisX = vec2(Cos(Radians(HeroRigidBody->Orientation)), Sin(Radians(HeroRigidBody->Orientation)));
+    HeroOrientationAxisY = Perp(HeroOrientationAxisX);
+    r32 Radius = (HeroHalfWidth*Absolute(Dot(HeroOrientationAxisX, Plane.N)) + HeroHalfHeight*Absolute(Dot(HeroOrientationAxisY, Plane.N)));
+
+    vec2 HeroDeltaP = dt*HeroRigidBody->dP;
+    r32 dtRemaining = dt;
+    for(u32 Iteration = 0;
+        Iteration < 100;
+        Iteration++)
+    {
+        r32 HeroDeltaPLength = Length(HeroDeltaP);
+        if((HeroDeltaPLength > 0.0f) && (dtRemaining > 0.0f))
+        {
+            r32 t = 1.0f;
+            vec2 PointOfContact;
+            b32 Collision = false;
+            vec2 DesiredP = HeroRigidBody->P + HeroDeltaP;
+
+            r32 DistFromHeroCenterToPlane = Dot(Plane.N, HeroRigidBody->P) - Plane.D;
+            if(Absolute(DistFromHeroCenterToPlane) < Radius)
+            {
+                // NOTE(georgy): Penetration
+                HeroRigidBody->P += (Radius - Absolute(DistFromHeroCenterToPlane) + 0.001f)*Plane.N;
+                DistFromHeroCenterToPlane = Dot(Plane.N, HeroRigidBody->P) - Plane.D;
+
+                Assert(Absolute(DistFromHeroCenterToPlane) >= Radius);
+            }   
+
+            {
+                r32 Denom = Dot(Plane.N, HeroDeltaP);
+                if((Denom * DistFromHeroCenterToPlane) >= 0.0f)
+                {
+                    // NOTE(georgy): Moving parallel to or away from the plane
+                    Collision = false;
+                }
+                else
+                {
+                    r32 PlaneDisplace = (DistFromHeroCenterToPlane > 0.0f) ? Radius : -Radius;
+                    r32 NewT = (PlaneDisplace - DistFromHeroCenterToPlane) / Denom;
+                    if((NewT <= t) && (NewT >= 0.0f))
+                    {
+                        t = NewT - 0.1f;
+                        if(t < 0.0f) t = NewT;
+                        Collision = true;
+
+                        PointOfContact = GetPointOfContact(HeroRigidBody, t, HeroDeltaP, 
+                                                        HeroHalfWidth, HeroOrientationAxisX, HeroHalfHeight, HeroOrientationAxisY,
+                                                        Plane, Radius);
+                    }
+                }
+            }
+
+            dtRemaining -= t*dtRemaining;
+            HeroRigidBody->P += t*HeroDeltaP;
+            HeroDeltaP = DesiredP - HeroRigidBody->P;
+            if(Collision)
+            {
+                r32 CoeffOfRestitution = 0.25f;
+                r32 OneOverMass = 1.0f / HeroRigidBody->Mass;
+                r32 OneOverMomentOfInertia = 1.0f / HeroRigidBody->MomentOfInertia;
+
+                vec2 PointRotationDir = Perp(PointOfContact - HeroRigidBody->P);
+                
+                vec2 Velocity = HeroRigidBody->dP + HeroRigidBody->AngularSpeed*PointRotationDir;
+
+                r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(Velocity, Plane.N);
+                r32 ImpulseDenom = Dot(Plane.N, Plane.N)*OneOverMass + 
+                                        OneOverMomentOfInertia*Square(Dot(PointRotationDir, Plane.N));
+
+                r32 ImpulseMagnitude = ImpulseNom / ImpulseDenom;
+            
+                HeroRigidBody->dP += (ImpulseMagnitude * OneOverMass)*Plane.N;
+                HeroRigidBody->AngularSpeed += Dot(PointRotationDir, ImpulseMagnitude*Plane.N) * OneOverMomentOfInertia;
+
+                HeroDeltaP = dtRemaining*HeroRigidBody->dP;
+            }
+        }
+    }
+
+    mat4 Model = Translation(vec3(HeroRigidBody->P, 0.0f)) * Rotation(HeroRigidBody->Orientation, vec3(0.0f, 0.0f, 1.0f)) * Scaling(vec3(HeroWidth, HeroHeight, 1.0f));
+    PushMat4(RenderCommandBuffer, "Model", &Model);
+    DrawModel(RenderCommandBuffer, &GameState->Quad);
+
+    Model = Identity();
+    PushMat4(RenderCommandBuffer, "Model", &Model);
+    DrawLine(RenderCommandBuffer, vec3(-1.0f, Plane.D, 0.0f), vec3(1.0f, -0.4f, 0.0f));
+
+#endif
 }

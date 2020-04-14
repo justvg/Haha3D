@@ -7,6 +7,8 @@ enum render_command_type
     RenderCommand_PushShader,
     RenderCommand_PopShader,
     RenderCommand_PushMat4,
+
+    RenderCommand_DrawLine,
 };
 
 struct render_command_buffer_entry
@@ -25,6 +27,11 @@ struct render_command_buffer_entry
         {
             char *Name;
             mat4 Matrix;
+        };
+        struct
+        {
+            vec3 From;
+            vec3 To;
         };
     };
 

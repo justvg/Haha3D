@@ -176,6 +176,37 @@ RenderCommands(render_command_buffer *RenderCommandBuffer)
             {
                 glUniformMatrix4fv(glGetUniformLocation(RenderCommandBuffer->CurrentShaderID, (char *)Command->Name), 1, GL_FALSE, Command->Matrix.E);
             } break;
+
+            case RenderCommand_DrawLine:
+            {
+                vec3 LineVertices[] = 
+                {
+                    Command->From,
+                    Command->To
+                };
+
+                static GLuint LineVAO = 0;
+                static GLuint LineVBO = 0;
+                if(LineVAO == 0)
+                {
+                    glGenVertexArrays(1, &LineVAO);
+                    glGenBuffers(1, &LineVBO);
+                    glBindVertexArray(LineVAO);
+                    glBindBuffer(GL_ARRAY_BUFFER, LineVBO);
+                    glEnableVertexAttribArray(0);
+                    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(r32), (void *)0);
+                    glBindVertexArray(0);
+
+                }
+                glBindVertexArray(LineVAO);
+                glBindBuffer(GL_ARRAY_BUFFER, LineVBO);
+                glBufferData(GL_ARRAY_BUFFER, sizeof(LineVertices), LineVertices, GL_STATIC_DRAW);
+
+                glLineWidth(3.0f);
+                glDrawArrays(GL_LINES, 0, 2);
+                glBindVertexArray(0);
+                glLineWidth(1.0f);
+            } break;
         }
     }
 }

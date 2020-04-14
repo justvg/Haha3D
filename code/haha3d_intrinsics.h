@@ -4,10 +4,26 @@
 #include <math.h>
 
 inline r32
+Square(r32 Value)
+{
+    r32 Result = Value * Value;
+    
+    return(Result);
+}
+
+inline r32
 SquareRoot(r32 Value)
 {
     r32 Result = sqrtf(Value);
 
+    return(Result);
+}
+
+inline r32
+Absolute(r32 Value)
+{
+    r32 Result = (Value >= 0.0f) ? Value : -Value; 
+    
     return(Result);
 }
 

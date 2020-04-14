@@ -62,6 +62,7 @@ union vec3
 
     vec3() {}
     vec3(r32 X, r32 Y, r32 Z) { x = X; y = Y; z = Z; }
+    vec3(vec2 XY, r32 Z) { x = XY.x; y = XY.y; z = Z; }
 };
 
 union vec4
