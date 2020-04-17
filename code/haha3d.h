@@ -50,9 +50,18 @@ struct rigid_body
     r32 Orientation; 
     r32 AngularSpeed;
 };
+
+enum game_object_type
+{
+    GameObject_Rectangle,
+};
 struct game_object
 {
+    game_object_type Type;
+
     rigid_body RigidBody;
+    model *Model;
+    r32 Width, Height;
 };
 
 struct game_state
@@ -65,7 +74,9 @@ struct game_state
 
     mat4 CubeOrientation;
 
-    game_object HeroQuad;
+    u32 GameObjectCount;
+    game_object *Hero;
+    game_object GameObjects[8];
 
     camera Camera;
 
