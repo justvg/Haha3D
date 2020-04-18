@@ -2,6 +2,15 @@
 
 #define PI 3.14159265358979323846f
 
+#define Epsilon (1.19e-7f)
+#define I32_MIN (-2147483647 - 1)
+#define I32_MAX 2147483647
+#define U32_MAX 0xFFFFFFFF
+#define FLT_MAX 3.402823466e+38F
+
+#define Max(A, B) (((A) > (B)) ? (A) : (B))
+#define Min(A, B) (((A) < (B)) ? (A) : (B))
+
 union vec2
 {
     struct

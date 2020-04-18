@@ -72,6 +72,8 @@ struct game_state
     vec3 HeroP;
     model Cube, Quad;
 
+    model TESTHERO;
+
     mat4 CubeOrientation;
 
     u32 GameObjectCount;
