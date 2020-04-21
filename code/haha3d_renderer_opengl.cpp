@@ -43,8 +43,6 @@ PLATFORM_INIT_BUFFERS(InitBuffers)
     glBufferData(GL_ARRAY_BUFFER, Size, Vertices, GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, Stride, (void *)0);
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, Stride, (void *)(3*sizeof(r32)));
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 } 
@@ -175,6 +173,11 @@ RenderCommands(render_command_buffer *RenderCommandBuffer)
             case RenderCommand_PushMat4:
             {
                 glUniformMatrix4fv(glGetUniformLocation(RenderCommandBuffer->CurrentShaderID, (char *)Command->Name), 1, GL_FALSE, Command->Matrix.E);
+            } break;
+
+            case RenderCommand_PushVec3:
+            {
+                glUniform3fv(glGetUniformLocation(RenderCommandBuffer->CurrentShaderID, (char *)Command->Name), 1, &Command->Vec3.x);
             } break;
 
             case RenderCommand_DrawLine:

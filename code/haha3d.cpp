@@ -115,6 +115,53 @@ CalculateMinkowskiDiff(vec2 *Diff, u32 ACount, vec2 *AVertices, u32 BCount, vec2
     return(VertexCount);
 }
 
+internal b32
+Contains(vec3 *Vertices, u32 Count, vec3 Check)
+{
+    b32 Result = false;
+
+    for(u32 Index = 0;
+        Index < Count;
+        Index++)
+    {
+        vec3 Vertex = Vertices[Index];
+        b32 XIsEqual = Absolute(Vertex.x - Check.x) <= Epsilon;
+        b32 YIsEqual = Absolute(Vertex.y - Check.y) <= Epsilon;
+        b32 ZIsEqual = Absolute(Vertex.y - Check.y) <= Epsilon;
+        if(XIsEqual && YIsEqual && ZIsEqual)
+        {
+            Result = true;
+            break;
+        }
+    }
+
+    return(Result);
+}
+
+internal u32
+CalculateMinkowskiDiff(vec3 *Diff, u32 ACount, vec3 *AVertices, u32 BCount, vec3 *BVertices)
+{
+    u32 VertexCount = 0;
+
+    for(u32 AVertex = 0;
+        AVertex < ACount;
+        AVertex++)
+    {
+        for(u32 BVertex = 0;
+            BVertex < BCount;
+            BVertex++)
+        {
+            vec3 NewVertex = AVertices[AVertex] - BVertices[BVertex];
+            if(!Contains(Diff, VertexCount, NewVertex))
+            {
+                Diff[VertexCount++] = NewVertex;
+            }
+        }
+    }
+
+    return(VertexCount);
+}
+
 internal u32
 ConstructConvexHull(vec2 *CH, u32 Count, vec2 *Vertices)
 {
@@ -606,6 +653,179 @@ TestIntersection(game_object *A, vec2 DeltaP, game_object *B, r32 *t, vec2 &Poin
     return(Result);
 }
 
+internal vec3 
+Support(vec3 D, u32 Count, vec3 *Points)
+{
+    Assert(Count > 0);
+
+    vec3 Result = Points[0];
+    r32 Max = Dot(D, Points[0]);
+
+    for(u32 Point = 1;  
+        Point < Count;
+        Point++)
+    {
+        r32 Value = Dot(D, Points[Point]);
+        if(Value > Max)
+        {
+            Max = Value;
+            Result = Points[Point];
+        }
+    }
+
+    return(Result);
+}
+
+internal b32
+DoSimplex(u32 *SimplexCount, vec3 *Simplex, vec3 *D)
+{
+    b32 Result = false;
+
+    if(*SimplexCount == 2)
+    {
+        vec3 B = Simplex[0];
+        vec3 A = Simplex[1];
+
+        vec3 AB = B - A;
+        vec3 AO = -A;
+
+        if(Dot(AB, AO) > 0.0f)
+        {
+            *D = Cross(Cross(AB, AO), AB);
+        }
+        else
+        {
+            *SimplexCount = 1;
+            Simplex[0] = A;
+            *D = AO;
+        }
+    }
+    else if(*SimplexCount == 3)
+    {
+        vec3 C = Simplex[0];
+        vec3 B = Simplex[1]; 
+        vec3 A = Simplex[2];
+
+        vec3 AB = B - A;
+        vec3 AC = C - A;
+        vec3 AO = -A;
+
+        vec3 ABCNormal = Cross(AB, AC);
+        vec3 ACNormal = Cross(ABCNormal, AC);
+        vec3 ABNormal = Cross(AB, ABCNormal);
+
+        if(Dot(ACNormal, AO) > 0.0f)
+        {
+            if(Dot(AC, AO) > 0.0f)
+            {
+                *SimplexCount = 2;
+                Simplex[0] = C;
+                Simplex[1] = A;
+                *D = Cross(Cross(AC, AO), AC);
+            }
+            else
+            {
+                if(Dot(AB, AO) > 0.0f)
+                {
+                    *SimplexCount = 2;
+                    Simplex[0] = B;
+                    Simplex[1] = A;
+                    *D = Cross(Cross(AB, AO), AB);
+                }
+                else
+                {
+                    *SimplexCount = 1;
+                    Simplex[0] = A;
+                    *D = AO;
+                }
+            }
+        }
+        else
+        {
+            if(Dot(ABNormal, AO) > 0.0f)
+            {
+                if(Dot(AB, AO) > 0.0f)
+                {
+                    *SimplexCount = 2;
+                    Simplex[0] = B;
+                    Simplex[1] = A;
+                    *D = Cross(Cross(AB, AO), AB);
+                }
+                else
+                {
+                    *SimplexCount = 1;
+                    Simplex[0] = A;
+                    *D = AO;
+                }
+            }
+            else
+            {
+                Result = true;
+            }
+        }
+    }
+
+    return(Result);
+}
+
+internal b32
+Intersect(game_object *A, game_object *B)
+{
+    vec2 AAxisX = vec2(Cos(Radians(A->RigidBody.Orientation)), Sin(Radians(A->RigidBody.Orientation)));
+    vec2 AAxisY = Perp(AAxisX);
+    // TODO(georgy): This function works for any convex polygon!
+    // NOTE(georgy): CCW order
+#if 0
+    vec3 APolygonVertices[4] = 
+    {
+        vec3(A->RigidBody.P + 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P + 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY, 0.0f),
+    };
+#else
+    vec3 APolygonVertices[8] = 
+    {
+        vec3(A->RigidBody.P + 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P + 0.25f*A->Width*AAxisX + 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.25f*A->Width*AAxisX + 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.25f*A->Width*AAxisX - 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P + 0.25f*A->Width*AAxisX - 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P + 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY, 0.0f),
+    };
+#endif
+    vec2 BAxisX = vec2(Cos(Radians(B->RigidBody.Orientation)), Sin(Radians(B->RigidBody.Orientation)));
+    vec2 BAxisY = Perp(BAxisX);
+    // TODO(georgy): This function works for any convex polygon!
+    // NOTE(georgy): CCW order
+    vec3 BPolygonVertices[4] = 
+    {
+        vec3(B->RigidBody.P + 0.5f*B->Width*BAxisX + 0.5f*B->Height*BAxisY, 0.0f),
+        vec3(B->RigidBody.P - 0.5f*B->Width*BAxisX + 0.5f*B->Height*BAxisY, 0.0f),
+        vec3(B->RigidBody.P - 0.5f*B->Width*BAxisX - 0.5f*B->Height*BAxisY, 0.0f),
+        vec3(B->RigidBody.P + 0.5f*B->Width*BAxisX - 0.5f*B->Height*BAxisY, 0.0f),
+    };
+
+    vec3 MD[32];
+    u32 MDCount = CalculateMinkowskiDiff(MD, ArrayCount(APolygonVertices), APolygonVertices, ArrayCount(BPolygonVertices), BPolygonVertices);
+
+    vec3 S = Support(vec3(1.0f, 0.0f, 0.0f), MDCount, MD);
+    u32 SimplexCount = 1;
+    vec3 Simplex[3] = {S, vec3(0, 0, 0), vec3(0, 0, 0)};
+    vec3 D = -S;
+
+    while(true)
+    {
+        vec3 A = Support(D, MDCount, MD);
+        if(Dot(D, A) < 0.0f) return(false); // NOTE(georgy): No intersection
+        Simplex[SimplexCount++] = A;
+        if(DoSimplex(&SimplexCount, Simplex, &D)) return(true); // NOTE(georgy): Intersection
+    }
+}
+
+
 extern "C" 
 GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
@@ -624,7 +844,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             0.5f, -0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
             0.5f,  0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
             -0.5f, -0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
-            -0.5f,  0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
+            -0.5f,  0.5f, -0.5f, 0.0f, 1.0f, 0.0f
             // Front face
             -0.5f, -0.5f,  0.5f, 0.0f, 0.0f, 0.0f,
             0.5f, -0.5f,  0.5f, 0.0f, 0.0f, 0.0f,
@@ -666,36 +886,23 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         r32 QuadVertices[] = 
         {
-            -0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f,
-            -0.5f, -0.5f, 0.0f, 1.0f, 1.0f, 1.0f,
-            0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f,
+            -0.5f, 0.5f, 0.0f,
+            -0.5f, -0.5f, 0.0f,
+            0.5f, 0.5f, 0.0f,
 
-            0.5f, 0.5f, 0.0f, 1.0f, 1.0f, 1.0f,
-            -0.5f, -0.5f, 0.0f, 1.0f, 1.0f, 1.0f,
-            0.5f, -0.5f, 0.0f, 1.0f, 1.0f, 1.0f,
+            0.5f, 0.5f, 0.0f,
+            -0.5f, -0.5f, 0.0f,
+            0.5f, -0.5f, 0.0f,
         };
 
-        InitModel(&GameState->Quad, sizeof(QuadVertices), QuadVertices, 6, 6*sizeof(r32));
+        InitModel(&GameState->Quad, sizeof(QuadVertices), QuadVertices, 6, 3*sizeof(r32));
 
         GameState->CubeOrientation = Identity();
-
-        r32 QuadVerticesHERO[] = 
-        {
-            -0.5f, 0.5f, 0.0f, 0.0f, 0.0f, 1.0f,
-            -0.5f, -0.5f, 0.0f, 0.0f, 0.0f, 1.0f,
-            0.5f, 0.5f, 0.0f, 0.0f, 0.0f, 1.0f,
-
-            0.5f, 0.5f, 0.0f, 0.0f, 0.0f, 1.0f,
-            -0.5f, -0.5f, 0.0f, 0.0f, 0.0f, 1.0f,
-            0.5f, -0.5f, 0.0f, 0.0f, 0.0f, 1.0f,
-        };
-
-        InitModel(&GameState->TESTHERO, sizeof(QuadVerticesHERO), QuadVerticesHERO, 6, 6*sizeof(r32));
 
         GameState->GameObjectCount = 1;
         GameState->Hero = GameState->GameObjects;
         GameState->Hero->Type = GameObject_Rectangle;
-        GameState->Hero->Model = &GameState->TESTHERO;
+        GameState->Hero->Model = &GameState->Quad;
         GameState->Hero->Width = 0.1f;
         GameState->Hero->Height = 0.05f;
         GameState->Hero->RigidBody.P = vec2(0.0f, -0.33f);
@@ -884,6 +1091,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     PushMat4(RenderCommandBuffer, "Model", &Model);
     DrawModel(RenderCommandBuffer, &GameState->Cube);
 #else
+#if 0
 
     plane Planes[4] = 
     {
@@ -1079,5 +1287,70 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     DrawLine(RenderCommandBuffer, vec3(Planes[1].D*Planes[1].N.x, -1.0f, 0.0f), vec3(Planes[1].D*Planes[1].N.x, 1.0f, 0.0f));
     DrawLine(RenderCommandBuffer, vec3(-1.0f, Planes[2].D*Planes[2].N.y, 0.0f), vec3(1.0f, Planes[2].D*Planes[2].N.y, 0.0f));
     DrawLine(RenderCommandBuffer, vec3(Planes[3].D*Planes[3].N.x, -1.0f, 0.0f), vec3(Planes[3].D*Planes[3].N.x, 1.0f, 0.0f));
+#else
+
+    if(Intersect(&GameState->GameObjects[0], &GameState->GameObjects[1]))
+    {
+        PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 1.0f, 0.0f));
+    }
+    else
+    {
+        PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 0.0f, 1.0f));
+    }
+
+    game_object *A = &GameState->GameObjects[0];
+    vec2 AAxisX = vec2(Cos(Radians(A->RigidBody.Orientation)), Sin(Radians(A->RigidBody.Orientation)));
+    vec2 AAxisY = Perp(AAxisX);
+    // TODO(georgy): This function works for any convex polygon!
+    // NOTE(georgy): CCW order
+    vec3 APolygonVertices[8] = 
+    {
+        vec3(A->RigidBody.P + 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P + 0.25f*A->Width*AAxisX + 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.25f*A->Width*AAxisX + 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.25f*A->Width*AAxisX - 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P + 0.25f*A->Width*AAxisX - 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P + 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY, 0.0f),
+    };
+
+    mat4 Model = Identity();
+    PushMat4(RenderCommandBuffer, "Model", &Model);
+    for(u32 I0 = 0, I1 = ArrayCount(APolygonVertices) - 1;
+        I0 < ArrayCount(APolygonVertices);
+        I1 = I0, I0++)
+    {
+        vec3 A = APolygonVertices[I1];
+        vec3 B = APolygonVertices[I0];
+        DrawLine(RenderCommandBuffer, A, B);
+    }
+
+    for(u32 GameObjectIndex = 0;
+        GameObjectIndex < 2;
+        GameObjectIndex++)
+    {
+        game_object *GameObject = GameState->GameObjects + GameObjectIndex;
+        rigid_body *RigidBody = &GameObject->RigidBody;
+
+        RigidBody->dP += dt*((RigidBody->ForceAccumulated*(1.0f / RigidBody->Mass)) + (GravityEnabled ? vec2(0.0f, -9.8f) : vec2(0.0f, 0.0f)));
+        RigidBody->P += dt*RigidBody->dP;
+    }
+
+    for(u32 GameObjectIndex = 1;
+        GameObjectIndex < 2;
+        GameObjectIndex++)
+    {
+        game_object *GameObject = GameState->GameObjects + GameObjectIndex;
+        rigid_body *RigidBody = &GameObject->RigidBody;
+
+        mat4 Model = Translation(vec3(RigidBody->P, 0.0f)) * 
+                     Rotation(RigidBody->Orientation, vec3(0.0f, 0.0f, 1.0f)) * 
+                     Scaling(vec3(GameObject->Width, GameObject->Height, 1.0f));
+        PushMat4(RenderCommandBuffer, "Model", &Model);
+        DrawModel(RenderCommandBuffer, GameObject->Model);
+    }
+
+#endif
 #endif
 }

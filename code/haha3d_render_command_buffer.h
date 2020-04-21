@@ -7,6 +7,7 @@ enum render_command_type
     RenderCommand_PushShader,
     RenderCommand_PopShader,
     RenderCommand_PushMat4,
+    RenderCommand_PushVec3,
 
     RenderCommand_DrawLine,
 };
@@ -22,6 +23,11 @@ struct render_command_buffer_entry
         {
             u32 VertexCount;
             void *Handle;
+        };
+        struct
+        {
+            char *Name;
+            vec3 Vec3;
         };
         struct
         {

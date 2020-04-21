@@ -61,6 +61,17 @@ PopShader(render_command_buffer *RenderCommandBuffer)
 }
 
 inline void
+PushVec3(render_command_buffer *RenderCommandBuffer, char *Name, vec3 Vector)
+{
+    render_command_buffer_entry *Entry = PushCommand(RenderCommandBuffer, RenderCommand_PushVec3);
+    if(Entry)
+    {
+        Entry->Name = Name;
+        Entry->Vec3 = Vector;
+    }
+}
+
+inline void
 PushMat4(render_command_buffer *RenderCommandBuffer, char *Name, mat4 *Matrix)
 {
     render_command_buffer_entry *Entry = PushCommand(RenderCommandBuffer, RenderCommand_PushMat4);
