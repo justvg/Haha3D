@@ -4,6 +4,7 @@ enum render_command_type
 {
     RenderCommand_Clear,
     RenderCommand_DrawModel,
+    RenderCommand_DrawModelEBO,
     RenderCommand_PushShader,
     RenderCommand_PopShader,
     RenderCommand_PushMat4,
@@ -22,6 +23,11 @@ struct render_command_buffer_entry
         struct
         {
             u32 VertexCount;
+            void *Handle;
+        };
+        struct
+        {
+            u32 IndicesCount;
             void *Handle;
         };
         struct

@@ -356,6 +356,7 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 
             platform_api PlatformAPI = {};
             PlatformAPI.InitBuffers = InitBuffers;
+            PlatformAPI.InitBuffersWithEBO = InitBuffersWithEBO;
             PlatformAPI.CompileShader = CompileShader;
 
             game_memory GameMemory = {};

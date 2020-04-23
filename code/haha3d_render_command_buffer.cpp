@@ -35,6 +35,17 @@ DrawModel(render_command_buffer *RenderCommandBuffer, model *Model)
 }
 
 inline void
+DrawModelEBO(render_command_buffer *RenderCommandBuffer, model *Model)
+{
+    render_command_buffer_entry *Entry = PushCommand(RenderCommandBuffer, RenderCommand_DrawModelEBO);
+    if(Entry)
+    {
+        Entry->IndicesCount = Model->IndexCount;
+        Entry->Handle = Model->Handle;
+    }
+}
+
+inline void
 Clear(render_command_buffer *RenderCommandBuffer, vec3 Color)
 {
     render_command_buffer_entry *Entry = PushCommand(RenderCommandBuffer, RenderCommand_Clear);

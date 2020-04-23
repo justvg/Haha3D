@@ -319,6 +319,200 @@ Lerp(vec3 A, vec3 B, r32 t)
     return(Result);
 }
 
+internal b32
+PointInTriangle(vec3 P, vec3 A, vec3 B, vec3 C)
+{
+    A -= P; B -= P; C -= P;
+    vec3 U = Cross(B, C);
+    vec3 V = Cross(C, A);
+    vec3 W = Cross(A, B);
+    b32 Result = (Dot(U, V) >= 0.0f) && (Dot(U, W) >= 0.0f);
+
+    return(Result);
+}
+
+internal vec3
+ClosestPointInSegment(vec3 P, vec3 A, vec3 B)
+{
+    r32 t = Dot(P - A, (B - A) * (1.0f / Length(B - A))) / Length(B - A);
+    vec3 Result = A + t*(B - A);
+    
+    return(Result);
+}
+
+enum voronoi_region
+{
+    VoronoiRegion_Vertex,
+    VoronoiRegion_Edge,
+    VoronoiRegion_Triangle,
+};
+
+struct closest_voronoi_region_triangle_point
+{
+    voronoi_region VR;
+    vec3 P;
+
+    // NOTE(georgy): These are valid if VR = VoronoiRegion_Edge
+    vec3 EdgeP0;
+    vec3 EdgeP1;
+};
+
+internal closest_voronoi_region_triangle_point
+ClosestPointInTriangleVR(vec3 P, vec3 A, vec3 B, vec3 C)
+{
+    closest_voronoi_region_triangle_point Result;
+
+    vec3 AB = B - A;
+    vec3 AC = C - A;
+    vec3 BC = C - B;
+
+    // NOTE(georgy): Parametric position s for projection P' of P on AB,
+    // P' = A + s*AB, s = sNom / (sNom + sDenom)
+    r32 sNom = Dot(P - A, AB);
+    r32 sDenom = Dot(P - B, A - B); 
+
+    // NOTE(georgy): Parametric position t for projection P' of P on AC,
+    // P' = A + t*AC, s = tNom / (tNom + tDenom)
+    r32 tNom = Dot(P - A, AC);
+    r32 tDenom = Dot(P - C, A - C);
+
+    if((sNom <= 0.0f) && (tNom <= 0.0f))
+    {
+        Result.VR = VoronoiRegion_Vertex;
+        Result.P = A;
+        return(Result);
+    }
+
+    // NOTE(georgy): Parametric position u for projection P' of P on BC,
+    // P' = B + u*BC, u = uNom / (uNom + uDenom)
+    r32 uNom = Dot(P - B, BC);
+    r32 uDenom = Dot(P - C, B - C);
+
+    if((sDenom <= 0.0f) && (uNom <= 0.0f))
+    {
+        Result.VR = VoronoiRegion_Vertex;
+        Result.P = B;
+        return(Result);
+    }
+
+    if((tDenom <= 0.0f) && (uDenom <= 0.0f))
+    {
+        Result.VR = VoronoiRegion_Vertex;
+        Result.P = C;
+        return(Result);
+    }
+
+    vec3 N = Cross(B - A, C - A);
+    r32 RAB = Dot(N, Cross(A - P, B - P));
+    if((RAB <= 0.0f) && (sNom >= 0.0f) && (sDenom >= 0.0f))
+    {
+        Result.VR = VoronoiRegion_Edge;
+        Result.P = A + AB*(sNom / (sNom + sDenom));
+        Result.EdgeP0 = A;
+        Result.EdgeP1 = B;
+        return(Result);
+    }
+
+    r32 RBC = Dot(N, Cross(B - P, C - P));
+    if((RBC <= 0.0f) && (uNom >= 0.0f) && (uDenom >= 0.0f))
+    {
+        Result.VR = VoronoiRegion_Edge;
+        Result.P = B + BC*(uNom / (uNom + uDenom));
+        Result.EdgeP0 = B;
+        Result.EdgeP1 = C;
+        return(Result);
+    }
+
+    r32 RCA = Dot(N, Cross(C - P, A - P));
+    if((RCA <= 0.0f) && (tNom >= 0.0f) && (tDenom >= 0.0f))
+    {
+        Result.VR = VoronoiRegion_Edge;
+        Result.P = A + AC*(tNom / (tNom + tDenom));
+        Result.EdgeP0 = C;
+        Result.EdgeP1 = A;
+        return(Result);
+    }
+
+    r32 u = RBC / (RAB + RBC + RCA);
+    r32 v = RCA / (RAB + RBC + RCA);
+    r32 w = 1.0f - u - v;
+    Result.VR = VoronoiRegion_Triangle;
+    Result.P = u*A + v*B + w*C;
+    return(Result);
+
+#if 0
+    // NOTE(georgy): Slow but easy to understand way to do this
+
+    b32 NegativeHalfspaceOfABPlane = (Dot(P - A, B - A) <= 0.0f);
+    b32 NegativeHalfspaceOfACPlane = (Dot(P - A, C - A) <= 0.0f);
+    if(NegativeHalfspaceOfABPlane && NegativeHalfspaceOfACPlane)
+    {
+        Result.VR = VoronoiRegion_Vertex;
+        Result.P = A;
+    }
+    else
+    {
+        b32 NegativeHalfspaceOfBAPlane = (Dot(P - B, A - B) <= 0.0f);
+        b32 NegativeHalfspaceOfBCPlane = (Dot(P - B, C - B) <= 0.0f);
+        if(NegativeHalfspaceOfBAPlane && NegativeHalfspaceOfBCPlane)
+        {
+            Result.VR = VoronoiRegion_Vertex;
+            Result.P = B;
+        }
+        else
+        {
+            b32 NegativeHalfspaceOfCAPlane = (Dot(P - C, A - C) <= 0.0f);
+            b32 NegativeHalfspaceOfCBPlane = (Dot(P - C, B - C) <= 0.0f);
+            if(NegativeHalfspaceOfCAPlane && NegativeHalfspaceOfCBPlane)
+            {
+                Result.VR = VoronoiRegion_Vertex;
+                Result.P = C;
+            }
+            else
+            {
+                vec3 N = Cross(B - A, C - A);
+
+                r32 RAB = Dot(N, Cross(A - P, B - P));
+                if((RAB <= 0.0f) && !NegativeHalfspaceOfABPlane && !NegativeHalfspaceOfBAPlane)
+                {
+                    Result.VR = VoronoiRegion_Edge;
+                    Result.P = ClosestPointInSegment(P, A, B);
+                    Result.EdgeP0 = A;
+                    Result.EdgeP1 = B;
+                }
+                else
+                {
+                    r32 RBC = Dot(N, Cross(B - P, C - P));
+                    if((RBC <= 0.0f) && !NegativeHalfspaceOfBCPlane && !NegativeHalfspaceOfCBPlane)
+                    {
+                        Result.VR = VoronoiRegion_Edge;
+                        Result.P = ClosestPointInSegment(P, B, C);
+                        Result.EdgeP0 = B;
+                        Result.EdgeP1 = C;
+                    }
+                    else
+                    {
+                        r32 RCA = Dot(N, Cross(C - P, A - P));
+                        if((RCA <= 0.0f) && !NegativeHalfspaceOfCAPlane && !NegativeHalfspaceOfACPlane)
+                        {
+                            Result.VR = VoronoiRegion_Edge;
+                            Result.P = ClosestPointInSegment(P, C, A);
+                            Result.EdgeP0 = C;
+                            Result.EdgeP1 = A; 
+                        }
+                        else
+                        {
+                            Result.VR = VoronoiRegion_Triangle;
+                            Result.P = P - N*(Dot(P - A, N) / Dot(N, N));
+                        }
+                    }
+                }
+            }
+        }
+    }
+#endif
+    return(Result);
+}
 
 // 
 // NOTE(georgy): vec4

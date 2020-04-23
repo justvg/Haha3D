@@ -26,6 +26,7 @@ ReadEntireFileAsString(char *Filepath)
 internal void 
 InitOpenGLProperties(void)
 {
+	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
 }
@@ -46,6 +47,28 @@ PLATFORM_INIT_BUFFERS(InitBuffers)
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 } 
+
+internal
+PLATFORM_INIT_BUFFERS_WITH_EBO(InitBuffersWithEBO)
+{
+    GLuint *VAO = (GLuint *)Handle;
+    GLuint *VBO = (GLuint *)((u8 *)Handle + sizeof(GLuint));
+    GLuint EBO;
+
+    glGenVertexArrays(1, VAO);
+    glGenBuffers(1, VBO);
+    glGenBuffers(1, &EBO);
+    glBindVertexArray(*VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, *VBO);
+    glBufferData(GL_ARRAY_BUFFER, Size, Vertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, Stride, (void *)0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, SizeOfIndices, Indices, GL_STATIC_DRAW);
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+}
 
 PLATFORM_COMPILE_SHADER(CompileShader)
 {
@@ -139,6 +162,15 @@ RenderCommands(render_command_buffer *RenderCommandBuffer)
                 
                 glBindVertexArray(VAO);
                 glDrawArrays(GL_TRIANGLES, 0, Command->VertexCount);
+                glBindVertexArray(0);
+            } break;
+
+            case RenderCommand_DrawModelEBO:
+            {
+                GLuint VAO = (GLuint)Command->Handle;
+                
+                glBindVertexArray(VAO);
+                glDrawElements(GL_TRIANGLES, Command->IndicesCount, GL_UNSIGNED_INT, 0);
                 glBindVertexArray(0);
             } break;
 

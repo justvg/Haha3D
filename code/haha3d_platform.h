@@ -73,12 +73,16 @@ WasDown(button *Button)
 #define PLATFORM_INIT_BUFFERS(name) void name(void **Handle, u32 Size, r32 *Vertices, u32 Stride)
 typedef PLATFORM_INIT_BUFFERS(platform_init_buffers);
 
+#define PLATFORM_INIT_BUFFERS_WITH_EBO(name) void name(void **Handle, u32 Size, r32 *Vertices, u32 Stride, u32 SizeOfIndices, u32 *Indices) 
+typedef PLATFORM_INIT_BUFFERS_WITH_EBO(platform_init_buffers_with_ebo);
+
 #define PLATFORM_COMPILE_SHADER(name) void name(void **Handle, char *ShaderFilepath)
 typedef PLATFORM_COMPILE_SHADER(platform_compile_shader);
 
 struct platform_api
 {
     platform_init_buffers *InitBuffers;
+    platform_init_buffers_with_ebo *InitBuffersWithEBO;
     platform_compile_shader *CompileShader;
 };
 
