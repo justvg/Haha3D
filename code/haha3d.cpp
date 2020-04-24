@@ -10,6 +10,111 @@ camera::GetRotationMatrix(void)
     return(Result);
 } 
 
+internal vec2
+GetPointOfContact(rigid_body *RigidBody, r32 t, vec2 DeltaP, 
+                  r32 HalfWidth, vec2 OrientationX, r32 HalfHeight, vec2 OrientationY,
+                  plane Plane, r32 Radius)
+{
+    vec2 RigidBodyCorners[4];
+    RigidBodyCorners[0] = RigidBody->P + t*DeltaP + 
+        (HalfWidth*OrientationX + HalfHeight*OrientationY);
+    RigidBodyCorners[1] = RigidBody->P + t*DeltaP + 
+        (HalfWidth*OrientationX - HalfHeight*OrientationY);
+    RigidBodyCorners[2] = RigidBody->P + t*DeltaP + 
+        (-HalfWidth*OrientationX - HalfHeight*OrientationY);
+    RigidBodyCorners[3] = RigidBody->P + t*DeltaP + 
+        (-HalfWidth*OrientationX + HalfHeight*OrientationY);
+
+    u32 ClosestCount = 0;
+    u32 ClosestIndecies[4];
+
+    u32 TheClosestToPlaneIndex = 0;
+    r32 ClosestDistance = FLT_MAX;
+
+    for(u32 Corner = 0;
+        Corner < 4;
+        Corner++)
+    {
+        r32 Distance = Absolute(Dot(RigidBodyCorners[Corner], Plane.N) - Plane.D);
+        if(Distance > 0.0f)
+        {
+            r32 Diff = ClosestDistance - Distance;
+            if(Absolute(Diff) <= Radius*0.1f)
+            {
+                ClosestIndecies[ClosestCount++] = Corner;
+            }
+            else if(Diff > 0.0f)
+            {
+                TheClosestToPlaneIndex = Corner;
+                ClosestDistance = Distance;
+
+                ClosestCount = 0;
+                ClosestIndecies[ClosestCount++] = Corner;
+            }
+        }
+    }
+
+    // Assert(ClosestCount <= 2);
+
+    vec2 PointOfContact;
+    if(ClosestCount > 2)
+    {
+        PointOfContact = Lerp(RigidBodyCorners[ClosestIndecies[0]], RigidBodyCorners[ClosestIndecies[1]], 0.5f);
+    }
+    else
+    {
+        PointOfContact = RigidBodyCorners[TheClosestToPlaneIndex];
+    }
+
+    return(PointOfContact);
+}
+
+internal b32
+Contains(vec2 *Vertices, u32 Count, vec2 Check)
+{
+    b32 Result = false;
+
+    for(u32 Index = 0;
+        Index < Count;
+        Index++)
+    {
+        vec2 Vertex = Vertices[Index];
+        b32 XIsEqual = Absolute(Vertex.x - Check.x) <= Epsilon;
+        b32 YIsEqual = Absolute(Vertex.y - Check.y) <= Epsilon;
+        if(XIsEqual && YIsEqual)
+        {
+            Result = true;
+            break;
+        }
+    }
+
+    return(Result);
+}
+
+internal u32
+CalculateMinkowskiDiff(vec2 *Diff, u32 ACount, vec2 *AVertices, u32 BCount, vec2 *BVertices)
+{
+    u32 VertexCount = 0;
+
+    for(u32 AVertex = 0;
+        AVertex < ACount;
+        AVertex++)
+    {
+        for(u32 BVertex = 0;
+            BVertex < BCount;
+            BVertex++)
+        {
+            vec2 NewVertex = AVertices[AVertex] - BVertices[BVertex];
+            if(!Contains(Diff, VertexCount, NewVertex))
+            {
+                Diff[VertexCount++] = NewVertex;
+            }
+        }
+    }
+
+    return(VertexCount);
+}
+
 internal b32
 Contains(vec3 *Vertices, u32 Count, vec3 Check)
 {
@@ -22,7 +127,7 @@ Contains(vec3 *Vertices, u32 Count, vec3 Check)
         vec3 Vertex = Vertices[Index];
         b32 XIsEqual = Absolute(Vertex.x - Check.x) <= Epsilon;
         b32 YIsEqual = Absolute(Vertex.y - Check.y) <= Epsilon;
-        b32 ZIsEqual = Absolute(Vertex.z - Check.z) <= Epsilon;
+        b32 ZIsEqual = Absolute(Vertex.y - Check.y) <= Epsilon;
         if(XIsEqual && YIsEqual && ZIsEqual)
         {
             Result = true;
@@ -285,7 +390,6 @@ ComputeProjectionIntervalGeneral(vec2 *Vertices, vec2 *Edges, u32 Count, vec2 V,
     }
 }
 
-#if 0
 internal b32
 TestIntersection(game_object *A, vec2 DeltaP, game_object *B, r32 *t, vec2 &PointOfContact, vec2 &CollisionNormal,
                  u32 MaxDepth = 100)
@@ -548,15 +652,6 @@ TestIntersection(game_object *A, vec2 DeltaP, game_object *B, r32 *t, vec2 &Poin
 
     return(Result);
 }
-#endif
-
-internal vec3
-Support(vec3 D, vec3 SphereP, r32 SphereRadius)
-{
-    vec3 Result = SphereP + SphereRadius*Normalize(D);
-
-    return(Result);
-}
 
 internal vec3 
 Support(vec3 D, u32 Count, vec3 *Points)
@@ -581,47 +676,13 @@ Support(vec3 D, u32 Count, vec3 *Points)
     return(Result);
 }
 
-internal void
-DoSimplexTetrahedronSubset(closest_voronoi_region_triangle_point TetrahedronVR, 
-                           vec3 A, vec3 B, vec3 C,
-                           u32 *SimplexCount, vec3 *Simplex, vec3 *Dir)
-{
-    switch(TetrahedronVR.VR)
-    {
-        case VoronoiRegion_Vertex:
-        {
-            *SimplexCount = 1;
-            Simplex[0] = TetrahedronVR.P; 
-            *Dir = -TetrahedronVR.P;
-        } break;
-
-        case VoronoiRegion_Edge:
-        {
-            *SimplexCount = 2;
-            Simplex[0] = TetrahedronVR.EdgeP0;
-            Simplex[1] = TetrahedronVR.EdgeP1;
-            *Dir = -TetrahedronVR.P;
-        } break;
-
-        case VoronoiRegion_Triangle:
-        {
-            *SimplexCount = 3;
-            Simplex[0] = C;
-            Simplex[1] = B;
-            Simplex[2] = A;
-            *Dir = -TetrahedronVR.P;
-        } break;
-    }
-}
-
 internal b32
-DoSimplex(u32 *SimplexCount, vec3 *Simplex, vec3 *Dir)
+DoSimplex(u32 *SimplexCount, vec3 *Simplex, vec3 *D)
 {
     b32 Result = false;
 
     if(*SimplexCount == 2)
     {
-        // NOTE(georgy): Line
         vec3 B = Simplex[0];
         vec3 A = Simplex[1];
 
@@ -630,104 +691,78 @@ DoSimplex(u32 *SimplexCount, vec3 *Simplex, vec3 *Dir)
 
         if(Dot(AB, AO) > 0.0f)
         {
-            *Dir = Cross(Cross(AB, AO), AB);
+            *D = Cross(Cross(AB, AO), AB);
         }
         else
         {
             *SimplexCount = 1;
             Simplex[0] = A;
-            *Dir = AO;
+            *D = AO;
         }
     }
     else if(*SimplexCount == 3)
     {
-        // NOTE(georgy): Triangle
         vec3 C = Simplex[0];
         vec3 B = Simplex[1]; 
         vec3 A = Simplex[2];
-        vec3 O = vec3(0.0f, 0.0f, 0.0f);
-
-        closest_voronoi_region_triangle_point TriangleVR = ClosestPointInTriangleVR(O, A, B, C);
-        switch(TriangleVR.VR)
-        {
-            case VoronoiRegion_Vertex:
-            {
-                *SimplexCount = 1;
-                Simplex[0] = TriangleVR.P;
-                *Dir = -TriangleVR.P;
-            } break;
-
-            case VoronoiRegion_Edge:
-            {
-                *SimplexCount = 2;
-                Simplex[0] = TriangleVR.EdgeP0;
-                Simplex[1] = TriangleVR.EdgeP1;
-                *Dir = -TriangleVR.P;
-            } break;
-
-            case VoronoiRegion_Triangle:
-            {
-                *Dir = -TriangleVR.P;
-            } break;
-        }
-    }
-    else if(*SimplexCount == 4)
-    {
-        // NOTE(georgy): Tetrahedron
-        vec3 D = Simplex[0];
-        vec3 C = Simplex[1];
-        vec3 B = Simplex[2];
-        vec3 A = Simplex[3];
 
         vec3 AB = B - A;
         vec3 AC = C - A;
-        vec3 AD = D - A;
         vec3 AO = -A;
-        vec3 O = vec3(0.0f, 0.0f, 0.0f);
 
         vec3 ABCNormal = Cross(AB, AC);
-        vec3 ACDNormal = Cross(AC, AD);
-        vec3 ADBNormal = Cross(AD, AB);
+        vec3 ACNormal = Cross(ABCNormal, AC);
+        vec3 ABNormal = Cross(AB, ABCNormal);
 
-        b32 InsideABCPlane = (Dot(ABCNormal, AO) * Dot(ABCNormal, AD) > 0.0f);
-        b32 InsideACDPlane = (Dot(ACDNormal, AO) * Dot(ACDNormal, AB) > 0.0f);
-        b32 InsideADBPlane = (Dot(ADBNormal, AO) * Dot(ADBNormal, AC) > 0.0f);
-        if(InsideABCPlane && InsideACDPlane && InsideADBPlane) return(true);
-
-        closest_voronoi_region_triangle_point ABC_VR = ClosestPointInTriangleVR(O, A, B, C);
-        closest_voronoi_region_triangle_point ACD_VR = ClosestPointInTriangleVR(O, A, C, D);
-        closest_voronoi_region_triangle_point ADB_VR = ClosestPointInTriangleVR(O, A, D, B);
-
-        r32 P_ABC_Length = Length(ABC_VR.P);
-        r32 P_ACD_Length = Length(ACD_VR.P);
-        r32 P_ADB_Length = Length(ADB_VR.P);
-        if(P_ABC_Length <= P_ACD_Length)
+        if(Dot(ACNormal, AO) > 0.0f)
         {
-            if(P_ABC_Length <= P_ADB_Length)
+            if(Dot(AC, AO) > 0.0f)
             {
-                DoSimplexTetrahedronSubset(ABC_VR, A, B, C, SimplexCount, Simplex, Dir);
+                *SimplexCount = 2;
+                Simplex[0] = C;
+                Simplex[1] = A;
+                *D = Cross(Cross(AC, AO), AC);
             }
             else
             {
-                DoSimplexTetrahedronSubset(ADB_VR, A, D, B, SimplexCount, Simplex, Dir);
+                if(Dot(AB, AO) > 0.0f)
+                {
+                    *SimplexCount = 2;
+                    Simplex[0] = B;
+                    Simplex[1] = A;
+                    *D = Cross(Cross(AB, AO), AB);
+                }
+                else
+                {
+                    *SimplexCount = 1;
+                    Simplex[0] = A;
+                    *D = AO;
+                }
             }
-        }
-        else if(P_ACD_Length <= P_ADB_Length)
-        {
-            DoSimplexTetrahedronSubset(ACD_VR, A, C, D, SimplexCount, Simplex, Dir);
         }
         else
         {
-            DoSimplexTetrahedronSubset(ADB_VR, A, D, B, SimplexCount, Simplex, Dir);
+            if(Dot(ABNormal, AO) > 0.0f)
+            {
+                if(Dot(AB, AO) > 0.0f)
+                {
+                    *SimplexCount = 2;
+                    Simplex[0] = B;
+                    Simplex[1] = A;
+                    *D = Cross(Cross(AB, AO), AB);
+                }
+                else
+                {
+                    *SimplexCount = 1;
+                    Simplex[0] = A;
+                    *D = AO;
+                }
+            }
+            else
+            {
+                Result = true;
+            }
         }
-    }
-
-    Assert(*SimplexCount != 4);
-
-    // NOTE(georgy): I don't know how safe this check is. But if we get Dir = (0, 0, 0), it means that origin is already in our simplex
-    if(Length(*Dir) <= Epsilon)
-    {
-        return(true);
     }
 
     return(Result);
@@ -736,139 +771,118 @@ DoSimplex(u32 *SimplexCount, vec3 *Simplex, vec3 *Dir)
 internal b32
 Intersect(game_object *A, game_object *B)
 {
-    vec3 AAxisX = vec3(Cos(Radians(A->RigidBody.Orientation)), 0.0f, -Sin(Radians(A->RigidBody.Orientation)));
-    vec3 AAxisZ = vec3(Sin(Radians(A->RigidBody.Orientation)), 0.0f, Cos(Radians(A->RigidBody.Orientation)));
-    vec3 AAxisY = vec3(0.0f, 1.0f, 0.0f);
-    // TODO(georgy): This function works for any convex polygon!
-    // NOTE(georgy): CCW order
-
+    vec2 AAxisX = vec2(Cos(Radians(A->RigidBody.Orientation)), Sin(Radians(A->RigidBody.Orientation)));
+    vec2 AAxisY = Perp(AAxisX);
     vec3 APolygonVertices[8] = 
     {
-        A->RigidBody.P + 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY + 0.5f*A->Depth*AAxisZ,
-        A->RigidBody.P + 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY - 0.5f*A->Depth*AAxisZ,
-        A->RigidBody.P - 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY - 0.5f*A->Depth*AAxisZ,
-        A->RigidBody.P - 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY + 0.5f*A->Depth*AAxisZ,
-        A->RigidBody.P - 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY + 0.5f*A->Depth*AAxisZ,
-        A->RigidBody.P + 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY + 0.5f*A->Depth*AAxisZ,
-        A->RigidBody.P + 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY - 0.5f*A->Depth*AAxisZ,
-        A->RigidBody.P - 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY - 0.5f*A->Depth*AAxisZ,
+        vec3(A->RigidBody.P + 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P + 0.25f*A->Width*AAxisX + 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.25f*A->Width*AAxisX + 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.25f*A->Width*AAxisX - 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P + 0.25f*A->Width*AAxisX - 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P + 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY, 0.0f),
     };
 
-#if 0
-    vec3 BAxisX = vec3(Cos(Radians(B->RigidBody.Orientation)), 0.0f, -Sin(Radians(B->RigidBody.Orientation)));
-    vec3 BAxisZ = vec3(Sin(Radians(B->RigidBody.Orientation)), 0.0f, Cos(Radians(B->RigidBody.Orientation)));
-    vec3 BAxisY = vec3(0.0f, 1.0f, 0.0f);
+    vec2 BAxisX = vec2(Cos(Radians(B->RigidBody.Orientation)), Sin(Radians(B->RigidBody.Orientation)));
+    vec2 BAxisY = Perp(BAxisX);
     // TODO(georgy): This function works for any convex polygon!
     // NOTE(georgy): CCW order
-    vec3 BPolygonVertices[8] = 
+    vec3 BPolygonVertices[4] = 
     {
-        B->RigidBody.P + 0.5f*B->Width*BAxisX + 0.5f*B->Height*BAxisY + 0.5f*B->Depth*BAxisZ,
-        B->RigidBody.P + 0.5f*B->Width*BAxisX + 0.5f*B->Height*BAxisY - 0.5f*B->Depth*BAxisZ,
-        B->RigidBody.P - 0.5f*B->Width*BAxisX + 0.5f*B->Height*BAxisY - 0.5f*B->Depth*BAxisZ,
-        B->RigidBody.P - 0.5f*B->Width*BAxisX + 0.5f*B->Height*BAxisY + 0.5f*B->Depth*BAxisZ,
-        B->RigidBody.P - 0.5f*B->Width*BAxisX - 0.5f*B->Height*BAxisY + 0.5f*B->Depth*BAxisZ,
-        B->RigidBody.P + 0.5f*B->Width*BAxisX - 0.5f*B->Height*BAxisY + 0.5f*B->Depth*BAxisZ,
-        B->RigidBody.P + 0.5f*B->Width*BAxisX - 0.5f*B->Height*BAxisY - 0.5f*B->Depth*BAxisZ,
-        B->RigidBody.P - 0.5f*B->Width*BAxisX - 0.5f*B->Height*BAxisY - 0.5f*B->Depth*BAxisZ,
+        vec3(B->RigidBody.P + 0.5f*B->Width*BAxisX + 0.5f*B->Height*BAxisY, 0.0f),
+        vec3(B->RigidBody.P - 0.5f*B->Width*BAxisX + 0.5f*B->Height*BAxisY, 0.0f),
+        vec3(B->RigidBody.P - 0.5f*B->Width*BAxisX - 0.5f*B->Height*BAxisY, 0.0f),
+        vec3(B->RigidBody.P + 0.5f*B->Width*BAxisX - 0.5f*B->Height*BAxisY, 0.0f),
     };
 
-    vec3 MD[64];
-    u32 MDCount = CalculateMinkowskiDiff(MD, ArrayCount(APolygonVertices), APolygonVertices, ArrayCount(BPolygonVertices), BPolygonVertices);
-#endif
+    vec3 MD[32];
+    u32 MDCount = CalculateMinkowskiDiff(MD, ArrayCount(BPolygonVertices), BPolygonVertices, ArrayCount(APolygonVertices), APolygonVertices);
 
-    vec3 SphereP = B->RigidBody.P;
-    r32 SphereRadius = 1.0f;
-
-    vec3 S = Support(vec3(1.0f, 0.0f, 0.0f), ArrayCount(APolygonVertices), APolygonVertices) - Support(-vec3(1.0f, 0.0f, 0.0f), SphereP, SphereRadius);
+    vec3 S = Support(vec3(1.0f, 0.0f, 0.0f), MDCount, MD);
     u32 SimplexCount = 1;
-    vec3 Simplex[4] = {S, vec3(0, 0, 0), vec3(0, 0, 0), vec3(0, 0, 0)};
+    vec3 Simplex[30];
+    Simplex[0] = S;
     vec3 D = -S;
 
+    b32 Result;
     while(true)
     {
-        vec3 A = Support(D, ArrayCount(APolygonVertices), APolygonVertices) - Support(-D, SphereP, SphereRadius);
-        if(Dot(D, A) < 0.0f) return(false); // NOTE(georgy): No intersection
+        vec3 A = Support(D, MDCount, MD);
+        if(Dot(D, A) < 0.0f)
+        {
+            // NOTE(georgy): No intersection
+            Result = false;
+            break;
+        } 
         Simplex[SimplexCount++] = A;
-        if(DoSimplex(&SimplexCount, Simplex, &D)) return(true); // NOTE(georgy): Intersection
-    }
-}
-
-internal model
-InitSphereMesh()
-{
-    u32 ParallelCount = 10;
-    u32 MeridianCount = 10;
-    r32 Radius = 1.0f;
-
-    u32 VerticesCount = 0;
-    vec3 Vertices[2048];
-
-    u32 IndicesCount = 0;
-    u32 Indices[2048];
-
-    Vertices[VerticesCount++] = Radius*vec3(0.0f, 1.0f, 0.0f);
-    for(u32 Parallel = 0;
-        Parallel < ParallelCount;
-        Parallel++)
-    {
-        r32 Phi = -((r32)(Parallel + 1) / (ParallelCount + 1))*PI + 0.5f*PI;
-        for(u32 Meridian = 0;
-            Meridian < MeridianCount;
-            Meridian++)
+        if(DoSimplex(&SimplexCount, Simplex, &D)) 
         {
-            r32 Theta = ((r32)Meridian / MeridianCount) * 2.0f*PI;
-            r32 X = -Sin(Theta)*Cos(Phi);
-            r32 Y = Sin(Phi);
-            r32 Z = -Cos(Phi)*Cos(Theta);
-            vec3 P = Radius*Normalize(vec3(X, Y, Z));
-            Vertices[VerticesCount++] = P;
-        }
-    }
-    Vertices[VerticesCount++] = Radius*vec3(0.0f, -1.0f, 0.0f);
-
-    for(u32 Meridian = 0;
-        Meridian < MeridianCount;
-        Meridian++)
-    {
-        Indices[IndicesCount++] = 0;
-        Indices[IndicesCount++] = Meridian + 1;
-        Indices[IndicesCount++] = ((Meridian + 1) % MeridianCount) + 1;
-    }
-
-    for(u32 Parallel = 0;
-        Parallel < ParallelCount - 1;
-        Parallel++)
-    {
-        for(u32 Meridian = 0;
-            Meridian < MeridianCount;
-            Meridian++)
-        {
-            u32 A = (Parallel*MeridianCount + 1) + Meridian;
-            u32 B = ((Parallel + 1)*MeridianCount + 1) + Meridian;
-            u32 C = ((Parallel + 1)*MeridianCount + 1) + ((Meridian + 1) % MeridianCount);
-            u32 D = (Parallel*MeridianCount + 1) + ((Meridian + 1) % MeridianCount);
-
-            Indices[IndicesCount++] = A;
-            Indices[IndicesCount++] = B;
-            Indices[IndicesCount++] = C;
-            Indices[IndicesCount++] = A;
-            Indices[IndicesCount++] = C;
-            Indices[IndicesCount++] = D;
+            // NOTE(georgy): Intersection
+            Result = true;
+            break;
         }
     }
 
-    for(u32 Meridian = 0;
-        Meridian < MeridianCount;
-        Meridian++)
+    if(Result)
     {
-        Indices[IndicesCount++] = ((ParallelCount - 1)*MeridianCount + 1) + ((Meridian + 1) % MeridianCount);
-        Indices[IndicesCount++] = ((ParallelCount - 1)*MeridianCount + 1) + Meridian;
-        Indices[IndicesCount++] = VerticesCount - 1;
-    }
+        Assert(SimplexCount == 3);
 
-    model Result;
-    Result.IndexCount = IndicesCount;
-    Platform.InitBuffersWithEBO(&Result.Handle, sizeof(vec3)*VerticesCount, (r32 *)Vertices, 3*sizeof(r32), sizeof(u32)*IndicesCount, Indices);
+        r32 Depth = 0.0f;
+        vec3 Normal = vec3(0.0f, 0.0f, 0.0f);
+        r32 Tolerance = 0.00001f;
+        while(true)
+        {
+            vec3 O = vec3(0.0f, 0.0f, 0.0f);
+
+            r32 ClosestDist = FLT_MAX;
+            vec3 ClosestNormal = vec3(0.0f, 0.0f, 0.0f);
+            u32 ClosestIndex = 0;
+            for(u32 I0 = 0, I1 = SimplexCount - 1;
+                I0 < SimplexCount;
+                I1 = I0, I0++)
+            {
+                vec3 Edge = Simplex[I0] - Simplex[I1];
+                vec3 N = Cross(Cross(Edge, O - Simplex[I1]), Edge);
+                N = Normalize(N);
+                r32 Dist = Dot(O - Simplex[I1], N);
+                if(Dist < ClosestDist)
+                {
+                    ClosestDist = Dist;
+                    ClosestNormal = -N;
+                    ClosestIndex = I1;
+                }
+            }
+
+            vec3 P = Support(ClosestNormal, MDCount, MD);
+            r32 D = Dot(P - O, ClosestNormal);
+            if(Absolute(D - ClosestDist) < Tolerance)
+            {
+                Normal = ClosestNormal;
+                Depth = D;
+                break;
+            }
+            else
+            {
+                vec3 SafeValue = Simplex[ClosestIndex + 1];
+                for(u32 ShiftIndex = ClosestIndex + 1;
+                    ShiftIndex < SimplexCount;
+                    ShiftIndex++)
+                {
+                    vec3 Temp = Simplex[ShiftIndex + 1];
+                    Simplex[ShiftIndex + 1] = SafeValue;
+                    SafeValue = Temp;
+                }
+
+                SimplexCount++;
+                Simplex[ClosestIndex + 1] = P;
+            }
+        }
+
+        A->RigidBody.P.x += Depth*Normal.x;
+        A->RigidBody.P.y += Depth*Normal.y;
+    }
 
     return(Result);
 }
@@ -886,50 +900,50 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         r32 CubeVertices[] = {
             // Back face
-            -0.5f, -0.5f, -0.5f,
-            0.5f,  0.5f, -0.5f,
-            0.5f, -0.5f, -0.5f,
-            0.5f,  0.5f, -0.5f,
-            -0.5f, -0.5f, -0.5f,
-            -0.5f,  0.5f, -0.5f,
+            -0.5f, -0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
+            0.5f,  0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
+            0.5f, -0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
+            0.5f,  0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
+            -0.5f, -0.5f, -0.5f, 0.0f, 1.0f, 0.0f,
+            -0.5f,  0.5f, -0.5f, 0.0f, 1.0f, 0.0f
             // Front face
-            -0.5f, -0.5f,  0.5f,
-            0.5f, -0.5f,  0.5f,
-            0.5f,  0.5f,  0.5f,
-            0.5f,  0.5f,  0.5f,
-            -0.5f,  0.5f,  0.5f,
-            -0.5f, -0.5f,  0.5f,
+            -0.5f, -0.5f,  0.5f, 0.0f, 0.0f, 0.0f,
+            0.5f, -0.5f,  0.5f, 0.0f, 0.0f, 0.0f,
+            0.5f,  0.5f,  0.5f, 0.0f, 0.0f, 0.0f,
+            0.5f,  0.5f,  0.5f, 0.0f, 0.0f, 0.0f,
+            -0.5f,  0.5f,  0.5f, 0.0f, 0.0f, 0.0f,
+            -0.5f, -0.5f,  0.5f, 0.0f, 0.0f, 0.0f,
             // Left face
-            -0.5f,  0.5f,  0.5f,
-            -0.5f,  0.5f, -0.5f,
-            -0.5f, -0.5f, -0.5f,
-            -0.5f, -0.5f, -0.5f,
-            -0.5f, -0.5f,  0.5f,
-            -0.5f,  0.5f,  0.5f,
+            -0.5f,  0.5f,  0.5f, 1.0f, 1.0f, 0.0f,
+            -0.5f,  0.5f, -0.5f, 1.0f, 1.0f, 0.0f,
+            -0.5f, -0.5f, -0.5f, 1.0f, 1.0f, 0.0f,
+            -0.5f, -0.5f, -0.5f, 1.0f, 1.0f, 0.0f,
+            -0.5f, -0.5f,  0.5f, 1.0f, 1.0f, 0.0f,
+            -0.5f,  0.5f,  0.5f, 1.0f, 1.0f, 0.0f,
             // Right face
-            0.5f,  0.5f,  0.5f,
-            0.5f, -0.5f, -0.5f,
-            0.5f,  0.5f, -0.5f,
-            0.5f, -0.5f, -0.5f,
-            0.5f,  0.5f,  0.5f,
-            0.5f, -0.5f,  0.5f,
+            0.5f,  0.5f,  0.5f, 0.0f, 0.0f, 1.0f,
+            0.5f, -0.5f, -0.5f, 0.0f, 0.0f, 1.0f,
+            0.5f,  0.5f, -0.5f, 0.0f, 0.0f, 1.0f,
+            0.5f, -0.5f, -0.5f, 0.0f, 0.0f, 1.0f,
+            0.5f,  0.5f,  0.5f, 0.0f, 0.0f, 1.0f,
+            0.5f, -0.5f,  0.5f, 0.0f, 0.0f, 1.0f,
             // Bottom face
-            -0.5f, -0.5f, -0.5f,
-            0.5f, -0.5f, -0.5f,
-            0.5f, -0.5f,  0.5f,
-            0.5f, -0.5f,  0.5f,
-            -0.5f, -0.5f,  0.5f,
-            -0.5f, -0.5f, -0.5f,
+            -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f,
+            0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f,
+            0.5f, -0.5f,  0.5f, 0.5f, 0.5f, 0.5f,
+            0.5f, -0.5f,  0.5f, 0.5f, 0.5f, 0.5f,
+            -0.5f, -0.5f,  0.5f, 0.5f, 0.5f, 0.5f,
+            -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f,
             // Top face
-            -0.5f,  0.5f, -0.5f,
-            0.5f,  0.5f , 0.5f,
-            0.5f,  0.5f, -0.5f,
-            0.5f,  0.5f,  0.5f,
-            -0.5f,  0.5f, -0.5f,
-            -0.5f,  0.5f,  0.5f,
+            -0.5f,  0.5f, -0.5f, 0.5f, 0.5f, 0.5f,
+            0.5f,  0.5f , 0.5f, 0.5f, 0.5f, 0.5f, 
+            0.5f,  0.5f, -0.5f, 0.5f, 0.5f, 0.5f,
+            0.5f,  0.5f,  0.5f, 0.5f, 0.5f, 0.5f,
+            -0.5f,  0.5f, -0.5f, 0.5f, 0.5f, 0.5f,
+            -0.5f,  0.5f,  0.5f, 0.5f, 0.5f, 0.5f,
         };
 
-        InitModel(&GameState->Cube, sizeof(CubeVertices), CubeVertices, 36, 3*sizeof(r32));
+        InitModel(&GameState->Cube, sizeof(CubeVertices), CubeVertices, 36, 6*sizeof(r32));
 
         r32 QuadVertices[] = 
         {
@@ -944,30 +958,41 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         InitModel(&GameState->Quad, sizeof(QuadVertices), QuadVertices, 6, 3*sizeof(r32));
 
-        GameState->Sphere = InitSphereMesh();
+        GameState->CubeOrientation = Identity();
 
-        GameState->GameObjectCount = 2;
+        GameState->GameObjectCount = 1;
         GameState->Hero = GameState->GameObjects;
-        GameState->Hero->Type = GameObject_Cube;
-        GameState->Hero->Model = &GameState->Cube;
-        GameState->Hero->Width = 1.0f;
-        GameState->Hero->Height = 1.0f;
-        GameState->Hero->Depth = 1.0f;
-        GameState->Hero->RigidBody.P = vec3(0.0f, 0.0f, 0.0f);
-        GameState->Hero->RigidBody.Mass = 6.0f;
+        GameState->Hero->Type = GameObject_Rectangle;
+        GameState->Hero->Model = &GameState->Quad;
+        GameState->Hero->Width = 0.1f;
+        GameState->Hero->Height = 0.05f;
+        GameState->Hero->RigidBody.P = vec2(0.0f, -0.33f);
+        GameState->Hero->RigidBody.Mass = 3.0f;
         GameState->Hero->RigidBody.MomentOfInertia = (1.0f / 12.0f) * GameState->Hero->RigidBody.Mass * 
                                                       (Square(GameState->Hero->Width) + Square(GameState->Hero->Height));
 
-        game_object *GameObject = &GameState->GameObjects[1];
-        GameObject->Type = GameObject_Cube;
-        GameObject->Model = &GameState->Sphere;
-        GameObject->Width = 1.0f;
-        GameObject->Height = 1.0f;
-        GameObject->Depth = 1.0f;
-        GameObject->RigidBody.P = vec3(0.0f, 0.0f, -3.0f);
-        GameObject->RigidBody.Mass = 6.0f;
-        GameObject->RigidBody.MomentOfInertia = (1.0f / 12.0f) * GameState->Hero->RigidBody.Mass * 
-                                                      (Square(GameState->Hero->Width) + Square(GameState->Hero->Height));
+        for(i32 YOffset = -1;
+            YOffset <= 1;
+            YOffset++)
+        {
+            for(i32 XOffset = -3;
+                XOffset <= 3;
+                XOffset++)
+            {
+                u32 GameObjectIndex = GameState->GameObjectCount;
+                GameState->GameObjects[GameObjectIndex].Type = GameObject_Rectangle;
+                GameState->GameObjects[GameObjectIndex].Model = &GameState->Quad;
+                GameState->GameObjects[GameObjectIndex].RigidBody.P = vec2(XOffset*0.15f, YOffset*0.1f);
+                GameState->GameObjects[GameObjectIndex].Width = 0.1f;
+                GameState->GameObjects[GameObjectIndex].Height = 0.05f;
+                GameState->GameObjects[GameObjectIndex].RigidBody.Mass = 3.0f;
+                GameState->GameObjects[GameObjectIndex].RigidBody.MomentOfInertia = 
+                        (1.0f / 12.0f) * GameState->GameObjects[GameObjectIndex].RigidBody.Mass * 
+                        (Square(GameState->GameObjects[GameObjectIndex].Width) + Square(GameState->GameObjects[GameObjectIndex].Height));
+
+                GameState->GameObjectCount++;
+            }
+        }
 
         GameState->IsInitialized = true;
     }
@@ -975,6 +1000,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     r32 dt = Input->dtForFrame;
 
     camera *Camera = &GameState->Camera;
+#if 0
     r32 CameraRotationSensetivity = 0.1f;
     Camera->CameraPitch -= Input->MouseYDisplacement*CameraRotationSensetivity;
     Camera->CameraHead -= Input->MouseXDisplacement*CameraRotationSensetivity;
@@ -998,48 +1024,112 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     r32 Theta = Degrees(ATan2(CameraForward.z, CameraForward.x)) - 90.0f;
     if(Input->MoveForward.EndedDown)
     {
-        GameState->Hero->RigidBody.Orientation = Theta;
-        GameState->Hero->RigidBody.P += 20.0f*dt*CameraForward;
+        GameState->HeroRotation = Theta;
+        GameState->HeroP += 20.0f*dt*CameraForward;
     }
     if(Input->MoveBack.EndedDown)
     {
-        GameState->Hero->RigidBody.Orientation = Theta + 180.0f;
-        GameState->Hero->RigidBody.P += 20.0f*dt*-CameraForward;
+        GameState->HeroRotation = Theta + 180.0f;
+        GameState->HeroP += 20.0f*dt*-CameraForward;
     }
     if(Input->MoveRight.EndedDown)
     {
-        GameState->Hero->RigidBody.Orientation = Theta - 90.0f;
-        GameState->Hero->RigidBody.P += 20.0f*dt*CameraRight;
+        GameState->HeroRotation = Theta - 90.0f;
+        GameState->HeroP += 20.0f*dt*CameraRight;
     }
     if(Input->MoveLeft.EndedDown)
     {
-        GameState->Hero->RigidBody.Orientation = Theta + 90.0f;
-        GameState->Hero->RigidBody.P += 20.0f*dt*-CameraRight;
+        GameState->HeroRotation = Theta + 90.0f;
+        GameState->HeroP += 20.0f*dt*-CameraRight;
     }
     if(Input->MoveForward.EndedDown && 
         Input->MoveRight.EndedDown)
     {
-        GameState->Hero->RigidBody.Orientation = Theta - 45.0f;
+        GameState->HeroRotation = Theta - 45.0f;
     }
     if(Input->MoveForward.EndedDown && 
         Input->MoveLeft.EndedDown)
     {
-        GameState->Hero->RigidBody.Orientation = Theta + 45.0f;
+        GameState->HeroRotation = Theta + 45.0f;
     }
     if(Input->MoveBack.EndedDown && 
         Input->MoveRight.EndedDown)
     {
-        GameState->Hero->RigidBody.Orientation = Theta - 135.0f;
+        GameState->HeroRotation = Theta - 135.0f;
     }
     if(Input->MoveBack.EndedDown && 
         Input->MoveLeft.EndedDown)
     {
-        GameState->Hero->RigidBody.Orientation = Theta + 135.0f;
+        GameState->HeroRotation = Theta + 135.0f;
     }
 
-    Camera->P = GameState->Hero->RigidBody.P + CameraOffsetFromHero;
+    Camera->P = GameState->HeroP + CameraOffsetFromHero;
     Camera->Dir = CameraForward;
+#else
 
+    GameState->Hero->RigidBody.ForceAccumulated = vec2(0.0f, 0.0f);
+    GameState->Hero->RigidBody.TorqueAccumulated = 0.0f;
+
+    static b32 ForceActsOnCM = true;
+    if(WasDown(&Input->MouseLeft))
+    {
+        ForceActsOnCM = !ForceActsOnCM;
+    }
+
+    static b32 GravityEnabled = false;
+    if(WasDown(&Input->MouseRight))
+    {
+        GravityEnabled = !GravityEnabled;
+    }
+
+    rigid_body *HeroRigidBody = &GameState->Hero->RigidBody;
+    r32 HeroHalfWidth = 0.5f*GameState->Hero->Width;
+    r32 HeroHalfHeight = 0.5f*GameState->Hero->Height;
+    vec2 HeroOrientationAxisX = vec2(Cos(Radians(HeroRigidBody->Orientation)), Sin(Radians(HeroRigidBody->Orientation)));
+    vec2 HeroOrientationAxisY = Perp(HeroOrientationAxisX);
+
+    // NOTE(georgy): At the moment these forces are acting only on the CM of the hero
+    if(Input->MoveForward.EndedDown)
+    {
+        vec2 Force = 200.0f*vec2(0.0f, 1.0f);
+        HeroRigidBody->ForceAccumulated += Force;
+        if(!ForceActsOnCM)
+        {
+            HeroRigidBody->TorqueAccumulated += Cross2D(HeroHalfHeight*HeroOrientationAxisY + 0.2f*HeroHalfWidth*HeroOrientationAxisX, Force);
+        }
+    }
+    if(Input->MoveBack.EndedDown)
+    {
+        vec2 Force = -200.0f*vec2(0.0f, 1.0f);
+        HeroRigidBody->ForceAccumulated += Force;
+        if(!ForceActsOnCM)
+        {
+            HeroRigidBody->TorqueAccumulated += Cross2D(-HeroHalfHeight*HeroOrientationAxisY - 0.2f*HeroHalfWidth*HeroOrientationAxisX, Force);
+        }
+    }
+    if(Input->MoveRight.EndedDown)
+    {
+        vec2 Force = 200.0f*vec2(1.0f, 0.0f);
+        HeroRigidBody->ForceAccumulated += Force;
+        if(!ForceActsOnCM)
+        {
+            HeroRigidBody->TorqueAccumulated += Cross2D(-HeroHalfWidth*HeroOrientationAxisX + 0.2f*HeroHalfHeight*HeroOrientationAxisY, Force);
+        }
+    }
+    if(Input->MoveLeft.EndedDown)
+    {
+        vec2 Force = -200.0f*vec2(1.0f, 0.0f);
+        HeroRigidBody->ForceAccumulated += Force;
+        if(!ForceActsOnCM)
+        {
+            HeroRigidBody->TorqueAccumulated += Cross2D(HeroHalfWidth*HeroOrientationAxisX - 0.2f*HeroHalfHeight*HeroOrientationAxisY, Force);
+        }
+    }
+
+    Camera->P = vec3(0.0f, 0.0f, 1.0f);
+    Camera->Dir = vec3(0.0f, 0.0f, -1.0f);
+
+#endif
     mat4 Projection = Perspective(45.0f, (r32)WindowWidth/(r32)WindowHeight, 0.1f, 50.0f);
     mat4 View = Camera->GetRotationMatrix();
 
@@ -1048,7 +1138,218 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     PushShader(RenderCommandBuffer, GameState->Shader);
     PushMat4(RenderCommandBuffer, "Projection", &Projection);
     PushMat4(RenderCommandBuffer, "View", &View);
-#if 1
+#if 0
+    mat4 Model = Translation(GameState->HeroP) * Rotation(GameState->HeroRotation, vec3(0.0f, 1.0f, 0.0f));
+    PushMat4(RenderCommandBuffer, "Model", &Model);
+    DrawModel(RenderCommandBuffer, &GameState->Cube);
+
+    Model = Translation(vec3(0.0f, -2.0f, 0.0f)) * Rotation(-90.0f, vec3(1.0f, 0.0f, 0.0f)) * Scaling(6.0f);
+    PushMat4(RenderCommandBuffer, "Model", &Model);
+    DrawModel(RenderCommandBuffer, &GameState->Plane);
+
+    GameState->CubeOrientation = Rotation(dt*180.0f, vec3(0.0f, 1.0f, 0.0f)) * GameState->CubeOrientation;
+    Model = Translation(vec3(0.0f, -1.5f, 0.0f)) * GameState->CubeOrientation;
+    PushMat4(RenderCommandBuffer, "Model", &Model);
+    DrawModel(RenderCommandBuffer, &GameState->Cube);
+#else
+#if 0
+
+    plane Planes[4] = 
+    {
+        {vec2(0.0f, 1.0f), -0.4f},
+        {vec2(-1.0f, 0.0f), -0.8f},
+        {vec2(0.0f, -1.0f), -0.4f},
+        {vec2(1.0f, 0.0f), -0.8f},
+    };
+
+    for(u32 GameObjectIndex = 0;
+        GameObjectIndex < GameState->GameObjectCount;
+        GameObjectIndex++)
+    {
+        game_object *GameObject = GameState->GameObjects + GameObjectIndex;
+        rigid_body *RigidBody = &GameObject->RigidBody;
+
+        RigidBody->dP += dt*((RigidBody->ForceAccumulated*(1.0f / RigidBody->Mass)) + (GravityEnabled ? vec2(0.0f, -9.8f) : vec2(0.0f, 0.0f)));
+        RigidBody->AngularSpeed += dt*(RigidBody->TorqueAccumulated / RigidBody->MomentOfInertia);
+        RigidBody->Orientation += dt*Degrees(RigidBody->AngularSpeed);
+        vec2 BodyOrientationAxisX = vec2(Cos(Radians(RigidBody->Orientation)), Sin(Radians(RigidBody->Orientation)));
+        vec2 BodyOrientationAxisY = Perp(BodyOrientationAxisX);
+        r32 BodyHalfWidth = 0.5f*GameObject->Width;
+        r32 BodyHalfHeight = 0.5f*GameObject->Height;
+
+        vec2 GameObjectDeltaP = dt*RigidBody->dP;
+        r32 dtRemaining = dt;
+        for(u32 Iteration = 0;
+            Iteration < 100;
+            Iteration++)
+        {
+            r32 GameObjectDeltaPLength = Length(GameObjectDeltaP);
+            if((GameObjectDeltaPLength > 0.0f) && (dtRemaining > 0.0f))
+            {
+                r32 t = 1.0f;
+                vec2 PointOfContact;
+                vec2 CollisionNormal;
+                b32 Collision = false;
+                game_object *CollisionGameObject = 0;
+
+                vec2 DesiredP = RigidBody->P + GameObjectDeltaP;
+
+                for(u32 PlaneIndex = 0;
+                    PlaneIndex < ArrayCount(Planes);
+                    PlaneIndex++)
+                {
+                    plane *Plane = Planes + PlaneIndex;
+                    b32 CollisionWithPlane = false;
+
+                    r32 Radius = (BodyHalfWidth*Absolute(Dot(BodyOrientationAxisX, Plane->N)) + BodyHalfHeight*Absolute(Dot(BodyOrientationAxisY, Plane->N)));
+                    r32 DistFromHeroCenterToPlane = Dot(Plane->N, RigidBody->P) - Plane->D;
+
+                    u32 MaxDepth = 100;
+                    while((Absolute(DistFromHeroCenterToPlane) < Radius) && (MaxDepth > 0))
+                    {
+                        // NOTE(georgy): Penetration
+                        RigidBody->P += (1.1f*Radius - Absolute(DistFromHeroCenterToPlane))*Plane->N;
+                        DistFromHeroCenterToPlane = Dot(Plane->N, RigidBody->P) - Plane->D;
+
+                        MaxDepth--;
+                    }   
+
+                    Assert(Absolute(DistFromHeroCenterToPlane) >= Radius);
+
+                    {
+                        r32 Denom = Dot(Plane->N, GameObjectDeltaP);
+                        if((Denom * DistFromHeroCenterToPlane) >= 0.0f)
+                        {
+                            // NOTE(georgy): Moving parallel to or away from the plane
+                            CollisionWithPlane = false;
+                        }
+                        else
+                        {
+                            r32 PlaneDisplace = (DistFromHeroCenterToPlane > 0.0f) ? Radius : -Radius;
+                            r32 NewT = (PlaneDisplace - DistFromHeroCenterToPlane) / Denom;
+                            if((NewT <= t) && (NewT >= 0.0f))
+                            {
+                                t = NewT - 0.1f;
+                                if(t < 0.0f) t = NewT;
+                                CollisionWithPlane = true;
+
+                                PointOfContact = GetPointOfContact(RigidBody, t, GameObjectDeltaP, 
+                                                                   BodyHalfWidth, BodyOrientationAxisX, BodyHalfHeight, BodyOrientationAxisY,
+                                                                   *Plane, Radius);
+                                CollisionNormal = Plane->N;
+                            }
+                        }
+                    }
+
+                    if(CollisionWithPlane) 
+                    {
+                        Collision = true;
+                    }
+                }
+
+                for(u32 TestGameObjectIndex = 0;
+                    TestGameObjectIndex < GameState->GameObjectCount;
+                    TestGameObjectIndex++)
+                {
+                    if(TestGameObjectIndex != GameObjectIndex)
+                    {
+                        game_object *TestGameObject = GameState->GameObjects + TestGameObjectIndex;
+                        
+                        r32 NewT = FLT_MAX;
+                        vec2 NewPointOfContact = {};
+                        vec2 NewCollisionNormal = {};
+                        if(TestIntersection(GameObject, GameObjectDeltaP, TestGameObject, 
+                                            &NewT, NewPointOfContact, NewCollisionNormal))
+                        {
+                            if((NewT <= t) && (NewT >= 0.0f))
+                            {
+                                t = NewT - 0.1f;
+                                PointOfContact = NewPointOfContact;
+                                CollisionNormal = NewCollisionNormal;
+
+                                Assert((Absolute(PointOfContact.x) > Epsilon) || (Absolute(PointOfContact.y) > Epsilon));
+                                Assert((Absolute(CollisionNormal.x) > Epsilon) || (Absolute(CollisionNormal.y) > Epsilon));
+
+                                Collision = true;
+                                CollisionGameObject = TestGameObject;
+                            }
+                        }
+                    }
+                }
+
+                dtRemaining -= t*dtRemaining;
+                RigidBody->P += t*GameObjectDeltaP;
+                GameObjectDeltaP = DesiredP - RigidBody->P;
+                if(Collision)
+                {
+                    r32 CoeffOfRestitution = 0.25f;
+                    
+                    r32 OneOverMassA = 1.0f / RigidBody->Mass;
+                    r32 OneOverMomentOfInertiaA = 1.0f / RigidBody->MomentOfInertia;
+                    vec2 PointRotationDirA = Perp(PointOfContact - RigidBody->P);
+                    vec2 VelocityA = RigidBody->dP + RigidBody->AngularSpeed*PointRotationDirA;
+
+                    r32 ImpulseMagnitude = 0.0f;
+                    if(!CollisionGameObject)
+                    {
+                        r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(VelocityA, CollisionNormal);
+                        r32 ImpulseDenom = Dot(CollisionNormal, CollisionNormal)*OneOverMassA + 
+                                                OneOverMomentOfInertiaA*Square(Dot(PointRotationDirA, CollisionNormal));
+
+                        ImpulseMagnitude = ImpulseNom / ImpulseDenom;
+                    }
+                    else
+                    {
+                        rigid_body *RigidBodyB = &CollisionGameObject->RigidBody;
+                        r32 OneOverMassB = 1.0f / RigidBodyB->Mass;
+                        r32 OneOverMomentOfInertiaB = 1.0f / RigidBodyB->MomentOfInertia;
+                        vec2 PointRotationDirB = Perp(PointOfContact - RigidBodyB->P);
+                        vec2 VelocityB = RigidBodyB->dP + RigidBodyB->AngularSpeed*PointRotationDirB;
+
+                        r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(VelocityA - VelocityB, CollisionNormal);
+                        r32 ImpulseDenom = Dot(CollisionNormal, CollisionNormal)*(OneOverMassA + OneOverMassB) + 
+                                            OneOverMomentOfInertiaA*Square(Dot(PointRotationDirA, CollisionNormal)) + 
+                                            OneOverMomentOfInertiaB*Square(Dot(PointRotationDirB, CollisionNormal));
+
+                        ImpulseMagnitude = ImpulseNom / ImpulseDenom;
+
+                        RigidBodyB->dP += (-ImpulseMagnitude * OneOverMassB)*CollisionNormal;
+                        RigidBodyB->AngularSpeed += Dot(PointRotationDirB, -ImpulseMagnitude*CollisionNormal) * OneOverMomentOfInertiaB;
+                    }
+
+                    RigidBody->dP += (ImpulseMagnitude * OneOverMassA)*CollisionNormal;
+                    RigidBody->AngularSpeed += Dot(PointRotationDirA, ImpulseMagnitude*CollisionNormal) * OneOverMomentOfInertiaA;
+
+                    GameObjectDeltaP = dtRemaining*RigidBody->dP;
+                }
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    for(u32 GameObjectIndex = 0;
+        GameObjectIndex < GameState->GameObjectCount;
+        GameObjectIndex++)
+    {
+        game_object *GameObject = GameState->GameObjects + GameObjectIndex;
+        mat4 Model = Translation(vec3(GameObject->RigidBody.P, 0.0f)) * 
+                     Rotation(GameObject->RigidBody.Orientation, vec3(0.0f, 0.0f, 1.0f)) * 
+                     Scaling(vec3(GameObject->Width, GameObject->Height, 1.0f));
+        PushMat4(RenderCommandBuffer, "Model", &Model);
+        DrawModel(RenderCommandBuffer, GameObject->Model);
+    }
+
+    mat4 Model = Identity();
+    PushMat4(RenderCommandBuffer, "Model", &Model);
+    DrawLine(RenderCommandBuffer, vec3(-1.0f, Planes[0].D*Planes[0].N.y, 0.0f), vec3(1.0f, Planes[0].D*Planes[0].N.y, 0.0f));
+    DrawLine(RenderCommandBuffer, vec3(Planes[1].D*Planes[1].N.x, -1.0f, 0.0f), vec3(Planes[1].D*Planes[1].N.x, 1.0f, 0.0f));
+    DrawLine(RenderCommandBuffer, vec3(-1.0f, Planes[2].D*Planes[2].N.y, 0.0f), vec3(1.0f, Planes[2].D*Planes[2].N.y, 0.0f));
+    DrawLine(RenderCommandBuffer, vec3(Planes[3].D*Planes[3].N.x, -1.0f, 0.0f), vec3(Planes[3].D*Planes[3].N.x, 1.0f, 0.0f));
+#else
+
     if(Intersect(&GameState->GameObjects[0], &GameState->GameObjects[1]))
     {
         PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 1.0f, 0.0f));
@@ -1058,69 +1359,59 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 0.0f, 1.0f));
     }
 
-    for(u32 GameObjectIndex = 0;
-        GameObjectIndex < GameState->GameObjectCount;
-        GameObjectIndex++)
+    game_object *A = &GameState->GameObjects[0];
+    vec2 AAxisX = vec2(Cos(Radians(A->RigidBody.Orientation)), Sin(Radians(A->RigidBody.Orientation)));
+    vec2 AAxisY = Perp(AAxisX);
+    // TODO(georgy): This function works for any convex polygon!
+    // NOTE(georgy): CCW order
+    vec3 APolygonVertices[8] = 
     {
-        game_object *GameObject = GameState->GameObjects + GameObjectIndex;
-
-        mat4 Model = Translation(GameObject->RigidBody.P) * Rotation(GameObject->RigidBody.Orientation, vec3(0.0f, 1.0f, 0.0f));
-        PushMat4(RenderCommandBuffer, "Model", &Model);
-        if(GameObjectIndex == 1)
-        {
-            DrawModelEBO(RenderCommandBuffer, &GameState->Sphere);
-        }
-        else
-        {
-            DrawModel(RenderCommandBuffer, GameObject->Model);
-        }
-    }
-
-#else
-    vec3 Triangle[3] = 
-    {
-        vec3(0.4f, -0.4f, 0.0f),
-        vec3(-0.4f, -0.4f, 0.0f),
-        vec3(0.0f, 0.4f, 0.0f),
+        vec3(A->RigidBody.P + 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P + 0.25f*A->Width*AAxisX + 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.25f*A->Width*AAxisX + 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P - 0.25f*A->Width*AAxisX - 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P + 0.25f*A->Width*AAxisX - 0.75f*A->Height*AAxisY, 0.0f),
+        vec3(A->RigidBody.P + 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY, 0.0f),
     };
-    PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 0.0f, 0.0f));
 
     mat4 Model = Identity();
     PushMat4(RenderCommandBuffer, "Model", &Model);
-    for(u32 I0 = 0, I1 = ArrayCount(Triangle) - 1;
-        I0 < ArrayCount(Triangle);
+    for(u32 I0 = 0, I1 = ArrayCount(APolygonVertices) - 1;
+        I0 < ArrayCount(APolygonVertices);
         I1 = I0, I0++)
     {
-        DrawLine(RenderCommandBuffer, Triangle[I1], Triangle[I0]);
+        vec3 A = APolygonVertices[I1];
+        vec3 B = APolygonVertices[I0];
+        DrawLine(RenderCommandBuffer, A, B);
     }
 
-    static vec3 Point = vec3(0.0f, 0.0f, 0.0f);
-    if(Input->MoveForward.EndedDown)
+    for(u32 GameObjectIndex = 0;
+        GameObjectIndex < 2;
+        GameObjectIndex++)
     {
-        // GameState->Hero->RigidBody.Orientation = Theta;
-        Point += 10.0f*dt*vec3(0.0f, 1.0f, 0.0f);
-    }
-    if(Input->MoveBack.EndedDown)
-    {
-        Point += 10.0f*dt*vec3(0.0f, -1.0f, 0.0f);
-    }
-    if(Input->MoveRight.EndedDown)
-    {
-        Point += 10.0f*dt*vec3(1.0f, 0.0f, 0.0f);;
-    }
-    if(Input->MoveLeft.EndedDown)
-    {
-        Point += 10.0f*dt*vec3(-1.0f, 0.0f, 0.0f);;
+        game_object *GameObject = GameState->GameObjects + GameObjectIndex;
+        rigid_body *RigidBody = &GameObject->RigidBody;
+
+        RigidBody->dP += dt*((RigidBody->ForceAccumulated*(1.0f / RigidBody->Mass)) + (GravityEnabled ? vec2(0.0f, -9.8f) : vec2(0.0f, 0.0f)));
+        RigidBody->P += dt*RigidBody->dP;
     }
 
-    Model = Translation(Point) * Scaling(0.05f);
-    PushMat4(RenderCommandBuffer, "Model", &Model);
-    DrawModel(RenderCommandBuffer, &GameState->Quad);
+    for(u32 GameObjectIndex = 1;
+        GameObjectIndex < 2;
+        GameObjectIndex++)
+    {
+        game_object *GameObject = GameState->GameObjects + GameObjectIndex;
+        rigid_body *RigidBody = &GameObject->RigidBody;
 
-    closest_voronoi_region_triangle_point P_VR = ClosestPointInTriangleVR(Point, Triangle[0], Triangle[1], Triangle[2]);
-    Model = Translation(P_VR.P) * Scaling(0.05f);
-    PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 1.0f, 0.0f));
-    PushMat4(RenderCommandBuffer, "Model", &Model);
-    DrawModel(RenderCommandBuffer, &GameState->Quad);
+        mat4 Model = Translation(vec3(RigidBody->P, 0.0f)) * 
+                     Rotation(RigidBody->Orientation, vec3(0.0f, 0.0f, 1.0f)) * 
+                     Scaling(vec3(GameObject->Width, GameObject->Height, 1.0f));
+        PushMat4(RenderCommandBuffer, "Model", &Model);
+        DrawModel(RenderCommandBuffer, GameObject->Model);
+    }
+
+#endif
 #endif
 }
