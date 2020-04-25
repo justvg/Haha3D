@@ -11,6 +11,7 @@ struct shader
 struct model
 {
     u32 VertexCount;
+    u32 IndexCount;
 
     void *Handle;
 };
@@ -37,13 +38,13 @@ class camera
 
 struct rigid_body
 {
-    vec2 ForceAccumulated;
+    vec3 ForceAccumulated;
     r32 TorqueAccumulated;
 
     // NOTE(georgy): Linear 
     r32 Mass;
-    vec2 dP;
-    vec2 P; // NOTE(georgy): This is center of mass in world coordinates
+    vec3 dP;
+    vec3 P; // NOTE(georgy): This is center of mass in world coordinates
 
     // NOTE(georgy): Angular
     r32 MomentOfInertia;
@@ -54,6 +55,7 @@ struct rigid_body
 enum game_object_type
 {
     GameObject_Rectangle,
+    GameObject_Cube,
 };
 struct game_object
 {
@@ -61,20 +63,14 @@ struct game_object
 
     rigid_body RigidBody;
     model *Model;
-    r32 Width, Height;
+    r32 Width, Height, Depth;
 };
 
 struct game_state
 {
     shader Shader;
 
-    r32 HeroRotation;
-    vec3 HeroP;
-    model Cube, Quad;
-
-    model TESTHERO;
-
-    mat4 CubeOrientation;
+    model Cube, Quad, Sphere;
 
     u32 GameObjectCount;
     game_object *Hero;

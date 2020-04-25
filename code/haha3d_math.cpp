@@ -758,6 +758,18 @@ operator*(mat3 A, mat3 B)
     return(Result);
 }
 
+internal vec3
+operator*(mat3 A, vec3 B)
+{
+    vec3 Result;
+
+    Result.x = A.a11*B.x + A.a12*B.y + A.a13*B.z;
+    Result.y = A.a21*B.x + A.a22*B.y + A.a23*B.z;
+    Result.z = A.a31*B.x + A.a32*B.y + A.a33*B.z;
+
+    return(Result);
+}
+
 // 
 // NOTE(georgy): mat4
 // 

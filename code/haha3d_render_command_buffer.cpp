@@ -33,7 +33,7 @@ DrawModel(render_command_buffer *RenderCommandBuffer, model *Model)
         Entry->Handle = Model->Handle;
     }
 }
-#if 0
+
 inline void
 DrawModelEBO(render_command_buffer *RenderCommandBuffer, model *Model)
 {
@@ -44,7 +44,7 @@ DrawModelEBO(render_command_buffer *RenderCommandBuffer, model *Model)
         Entry->Handle = Model->Handle;
     }
 }
-#endif
+
 inline void
 Clear(render_command_buffer *RenderCommandBuffer, vec3 Color)
 {
