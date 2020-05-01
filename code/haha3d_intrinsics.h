@@ -20,6 +20,27 @@ SquareRoot(r32 Value)
 }
 
 inline r32
+Sign(r32 Value)
+{
+    r32 Result;
+    
+    if(Value > 0.0f)
+    {
+        Result = 1.0f;
+    }
+    else if(Value < 0.0f)
+    {
+        Result = -1.0f;
+    }
+    else
+    {
+        Result = 0.0f;
+    }
+
+    return(Result);
+}
+
+inline r32
 Absolute(r32 Value)
 {
     r32 Result = (Value >= 0.0f) ? Value : -Value; 

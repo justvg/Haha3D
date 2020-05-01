@@ -3,6 +3,10 @@
 #include "haha3d_render_command_buffer.cpp"
 #include <vector>
 
+
+#include <Windows.h>
+#include <stdio.h>
+
 mat4 
 camera::GetRotationMatrix(void)
 { 
@@ -584,8 +588,8 @@ Support(vec3 D, u32 Count, vec3 *Points)
 
 internal void
 DoSimplexTetrahedronSubset(closest_voronoi_region_triangle_point TetrahedronVR, 
-                           vec3 A, vec3 B, vec3 C,
-                           u32 *SimplexCount, vec3 *Simplex, vec3 *Dir)
+                           vec3 A, vec3 B, vec3 C, vec3 *TriangleFromSimplexA, vec3 *TriangleFromSimplexB,
+                           u32 *SimplexCount, vec3 *Simplex, vec3 *Dir, vec3 *SimplexA, vec3 *SimplexB)
 {
     switch(TetrahedronVR.VR)
     {
@@ -593,6 +597,8 @@ DoSimplexTetrahedronSubset(closest_voronoi_region_triangle_point TetrahedronVR,
         {
             *SimplexCount = 1;
             Simplex[0] = TetrahedronVR.P; 
+            SimplexA[0] = TriangleFromSimplexA[TetrahedronVR.VertIndex0];
+            SimplexB[0] = TriangleFromSimplexB[TetrahedronVR.VertIndex0];
             *Dir = -TetrahedronVR.P;
         } break;
 
@@ -601,6 +607,10 @@ DoSimplexTetrahedronSubset(closest_voronoi_region_triangle_point TetrahedronVR,
             *SimplexCount = 2;
             Simplex[0] = TetrahedronVR.EdgeP0;
             Simplex[1] = TetrahedronVR.EdgeP1;
+            SimplexA[0] = TriangleFromSimplexA[TetrahedronVR.VertIndex0];
+            SimplexA[1] = TriangleFromSimplexA[TetrahedronVR.VertIndex1];
+            SimplexB[0] = TriangleFromSimplexB[TetrahedronVR.VertIndex0];
+            SimplexB[1] = TriangleFromSimplexB[TetrahedronVR.VertIndex1];
             *Dir = -TetrahedronVR.P;
         } break;
 
@@ -610,13 +620,19 @@ DoSimplexTetrahedronSubset(closest_voronoi_region_triangle_point TetrahedronVR,
             Simplex[0] = C;
             Simplex[1] = B;
             Simplex[2] = A;
+            SimplexA[0] = TriangleFromSimplexA[2];
+            SimplexA[1] = TriangleFromSimplexA[1];
+            SimplexA[2] = TriangleFromSimplexA[0];
+            SimplexB[0] = TriangleFromSimplexB[2];
+            SimplexB[1] = TriangleFromSimplexB[1];
+            SimplexB[2] = TriangleFromSimplexB[0];
             *Dir = -TetrahedronVR.P;
         } break;
     }
 }
 
 internal b32
-DoSimplex(u32 *SimplexCount, vec3 *Simplex, vec3 *Dir)
+DoSimplex(u32 *SimplexCount, vec3 *Simplex, vec3 *Dir, vec3 *SimplexA, vec3 *SimplexB)
 {
     b32 Result = false;
 
@@ -637,6 +653,8 @@ DoSimplex(u32 *SimplexCount, vec3 *Simplex, vec3 *Dir)
         {
             *SimplexCount = 1;
             Simplex[0] = A;
+            SimplexA[0] = SimplexA[1];
+            SimplexB[0] = SimplexB[1];
             *Dir = AO;
         }
     }
@@ -655,6 +673,8 @@ DoSimplex(u32 *SimplexCount, vec3 *Simplex, vec3 *Dir)
             {
                 *SimplexCount = 1;
                 Simplex[0] = TriangleVR.P;
+                SimplexA[0] = SimplexA[2 - TriangleVR.VertIndex0];
+                SimplexB[0] = SimplexB[2 - TriangleVR.VertIndex0];
                 *Dir = -TriangleVR.P;
             } break;
 
@@ -663,6 +683,10 @@ DoSimplex(u32 *SimplexCount, vec3 *Simplex, vec3 *Dir)
                 *SimplexCount = 2;
                 Simplex[0] = TriangleVR.EdgeP0;
                 Simplex[1] = TriangleVR.EdgeP1;
+                SimplexA[0] = SimplexA[2 - TriangleVR.VertIndex0];
+                SimplexA[1] = SimplexA[2 - TriangleVR.VertIndex1];
+                SimplexB[0] = SimplexB[2 - TriangleVR.VertIndex0];
+                SimplexB[1] = SimplexB[2 - TriangleVR.VertIndex1];
                 *Dir = -TriangleVR.P;
             } break;
 
@@ -689,17 +713,19 @@ DoSimplex(u32 *SimplexCount, vec3 *Simplex, vec3 *Dir)
         vec3 ABCNormal = Cross(AB, AC);
         vec3 ACDNormal = Cross(AC, AD);
         vec3 ADBNormal = Cross(AD, AB);
+        vec3 CBDNormal = Cross(B - C, D - C);
 
         b32 InsideABCPlane = (Dot(ABCNormal, AO) * Dot(ABCNormal, AD) >= 0.0f);
         b32 InsideACDPlane = (Dot(ACDNormal, AO) * Dot(ACDNormal, AB) >= 0.0f);
         b32 InsideADBPlane = (Dot(ADBNormal, AO) * Dot(ADBNormal, AC) >= 0.0f);
-        if(InsideABCPlane && InsideACDPlane && InsideADBPlane) return(true);
+        b32 InsideCBDPlane = (Dot(CBDNormal, O - C) * Dot(CBDNormal, A - C) >= 0.0f);
+        if(InsideABCPlane && InsideACDPlane && InsideADBPlane && InsideCBDPlane) return(true);
 
-        // NOTE(georgy): 0 - ABC, 1 - ACD, 2 - ADB
+        // NOTE(georgy): 0 - ABC, 1 - ACD, 2 - ADB, 3 - CBD
         u32 TriangleIndex = 0;
         r32 ClosestDistSq = FLT_MAX;
 
-        closest_voronoi_region_triangle_point ABC_VR, ACD_VR, ADB_VR;
+        closest_voronoi_region_triangle_point ABC_VR, ACD_VR, ADB_VR, CBD_VR;
         if(!InsideABCPlane)
         {
             ABC_VR = ClosestPointInTriangleVR(O, A, B, C);
@@ -733,28 +759,56 @@ DoSimplex(u32 *SimplexCount, vec3 *Simplex, vec3 *Dir)
             }
         }
 
+        if(!InsideCBDPlane)
+        {
+            CBD_VR = ClosestPointInTriangleVR(O, C, B, D);
+            r32 DistSq = LengthSq(CBD_VR.P);
+            if(DistSq < ClosestDistSq)
+            {
+                ClosestDistSq = DistSq;
+                TriangleIndex = 3;
+            }
+        }
+
         switch(TriangleIndex)
         {
             case 0:
             {
-                DoSimplexTetrahedronSubset(ABC_VR, A, B, C, SimplexCount, Simplex, Dir);
+                vec3 TriangleFromSimplexA[3] = { SimplexA[3], SimplexA[2], SimplexA[1] }; 
+                vec3 TriangleFromSimplexB[3] = { SimplexB[3], SimplexB[2], SimplexB[1] }; 
+                DoSimplexTetrahedronSubset(ABC_VR, A, B, C, TriangleFromSimplexA, TriangleFromSimplexB, 
+                                           SimplexCount, Simplex, Dir, SimplexA, SimplexB);
             } break;
 
             case 1:
             {
-                DoSimplexTetrahedronSubset(ACD_VR, A, C, D, SimplexCount, Simplex, Dir);
+                vec3 TriangleFromSimplexA[3] = { SimplexA[3], SimplexA[1], SimplexA[0] }; 
+                vec3 TriangleFromSimplexB[3] = { SimplexB[3], SimplexB[1], SimplexB[0] }; 
+                DoSimplexTetrahedronSubset(ACD_VR, A, C, D, TriangleFromSimplexA, TriangleFromSimplexB, 
+                                          SimplexCount, Simplex, Dir, SimplexA, SimplexB);
             } break;
 
             case 2:
             {
-                DoSimplexTetrahedronSubset(ADB_VR, A, D, B, SimplexCount, Simplex, Dir);
+                vec3 TriangleFromSimplexA[3] = { SimplexA[3], SimplexA[0], SimplexA[2] }; 
+                vec3 TriangleFromSimplexB[3] = { SimplexB[3], SimplexB[0], SimplexB[2] }; 
+                DoSimplexTetrahedronSubset(ADB_VR, A, D, B, TriangleFromSimplexA, TriangleFromSimplexB, 
+                                           SimplexCount, Simplex, Dir, SimplexA, SimplexB);
+            } break;
+            
+            case 3:
+            {
+                vec3 TriangleFromSimplexA[3] = { SimplexA[1], SimplexA[2], SimplexA[0] }; 
+                vec3 TriangleFromSimplexB[3] = { SimplexB[1], SimplexB[2], SimplexB[0] }; 
+                DoSimplexTetrahedronSubset(CBD_VR, C, B, D, TriangleFromSimplexA, TriangleFromSimplexB, 
+                                           SimplexCount, Simplex, Dir, SimplexA, SimplexB);
             } break;
         }
     }
 
     Assert(*SimplexCount != 4);
 
-    if(LengthSq(*Dir) <= Square(0.001f))
+    if(LengthSq(*Dir) <= Square(0.01f))
     {
         return(true);
     }
@@ -773,12 +827,19 @@ VectorsAreEqual(vec3 A, vec3 B)
     return(Result);
 }
 
-internal b32
-Intersect(game_object *ObjA, game_object *ObjB)
+struct collision_info
 {
-    vec3 AAxisX = vec3(Cos(Radians(ObjA->RigidBody.Orientation)), 0.0f, -Sin(Radians(ObjA->RigidBody.Orientation)));
-    vec3 AAxisZ = vec3(Sin(Radians(ObjA->RigidBody.Orientation)), 0.0f, Cos(Radians(ObjA->RigidBody.Orientation)));
-    vec3 AAxisY = vec3(0.0f, 1.0f, 0.0f);
+    vec3 ContactP;
+    vec3 Normal;
+    vec3 PenetrationVector;
+};
+
+internal b32
+Intersect(collision_info *CollisionInfo, game_object *ObjA, game_object *ObjB)
+{
+    vec3 AAxisX = vec3(ObjA->RigidBody.Orientation.a11, ObjA->RigidBody.Orientation.a21, ObjA->RigidBody.Orientation.a31);
+    vec3 AAxisY = vec3(ObjA->RigidBody.Orientation.a12, ObjA->RigidBody.Orientation.a22, ObjA->RigidBody.Orientation.a32);
+    vec3 AAxisZ = vec3(ObjA->RigidBody.Orientation.a13, ObjA->RigidBody.Orientation.a23, ObjA->RigidBody.Orientation.a33);
 
     vec3 APolygonVertices[8] = 
     {
@@ -792,10 +853,10 @@ Intersect(game_object *ObjA, game_object *ObjB)
         ObjA->RigidBody.P - 0.5f*ObjA->Width*AAxisX - 0.5f*ObjA->Height*AAxisY - 0.5f*ObjA->Depth*AAxisZ,
     };
 
-#if 0
-    vec3 BAxisX = vec3(Cos(Radians(ObjB->RigidBody.Orientation)), 0.0f, -Sin(Radians(ObjB->RigidBody.Orientation)));
-    vec3 BAxisZ = vec3(Sin(Radians(ObjB->RigidBody.Orientation)), 0.0f, Cos(Radians(ObjB->RigidBody.Orientation)));
-    vec3 BAxisY = vec3(0.0f, 1.0f, 0.0f);
+#if 1
+    vec3 BAxisX = vec3(ObjB->RigidBody.Orientation.a11, ObjB->RigidBody.Orientation.a21, ObjB->RigidBody.Orientation.a31);
+    vec3 BAxisY = vec3(ObjB->RigidBody.Orientation.a12, ObjB->RigidBody.Orientation.a22, ObjB->RigidBody.Orientation.a32);
+    vec3 BAxisZ = vec3(ObjB->RigidBody.Orientation.a13, ObjB->RigidBody.Orientation.a23, ObjB->RigidBody.Orientation.a33);
 
     vec3 BPolygonVertices[8] = 
     {
@@ -808,33 +869,54 @@ Intersect(game_object *ObjA, game_object *ObjB)
         ObjB->RigidBody.P + 0.5f*ObjB->Width*BAxisX - 0.5f*ObjB->Height*BAxisY - 0.5f*ObjB->Depth*BAxisZ,
         ObjB->RigidBody.P - 0.5f*ObjB->Width*BAxisX - 0.5f*ObjB->Height*BAxisY - 0.5f*ObjB->Depth*BAxisZ,
     };
-
-    vec3 MD[64];
-    u32 MDCount = CalculateMinkowskiDiff(MD, ArrayCount(BPolygonVertices), BPolygonVertices, ArrayCount(APolygonVertices), APolygonVertices);
 #else
     vec3 SphereP = ObjB->RigidBody.P;
     r32 SphereRadius = 1.0f;
 #endif
 
-    // vec3 S = Support(vec3(1.0f, 0.0f, 0.0f), MDCount, MD);
-    vec3 S = Support(vec3(1.0f, 0.0f, 0.0f), SphereP, SphereRadius) - Support(-vec3(1.0f, 0.0f, 0.0f), ArrayCount(APolygonVertices), APolygonVertices);
+    vec3 Sa = Support(vec3(1.0f, 0.0f, 0.0f), ArrayCount(BPolygonVertices), BPolygonVertices);
+    vec3 Sb = Support(-vec3(1.0f, 0.0f, 0.0f), ArrayCount(APolygonVertices), APolygonVertices);
+    vec3 S = Sa - Sb;
     u32 SimplexCount = 1;
     vec3 Simplex[4] = {S, vec3(0, 0, 0), vec3(0, 0, 0), vec3(0, 0, 0)};
+    vec3 SimplexA[4] = {Sa, vec3(0, 0, 0), vec3(0, 0, 0), vec3(0, 0, 0)};
+    vec3 SimplexB[4] = {Sb, vec3(0, 0, 0), vec3(0, 0, 0), vec3(0, 0, 0)};
     vec3 Dir = -S;
+
+    Assert(VectorsAreEqual(Simplex[0], SimplexA[0] - SimplexB[0]));
 
     // NOTE(georgy): GJK pass
     b32 Result;
     while(true)
     {
-        vec3 A = Support(Dir, SphereP, SphereRadius) - Support(-Dir, ArrayCount(APolygonVertices), APolygonVertices);
-        // vec3 A = Support(Dir, MDCount, MD);
-        if(Dot(Dir, A) < 0.0f)
+        vec3 Aa = Support(Dir, ArrayCount(BPolygonVertices), BPolygonVertices);
+        vec3 Ab = Support(-Dir, ArrayCount(APolygonVertices), APolygonVertices);
+        vec3 A = Aa - Ab;
+        r32 DirDotA = Dot(Dir, A);
+        // if(DirDotA < 0.0f)
+        r32 MaxSqMagnitude = -FLT_MAX;
+        for(u32 I = 0; I < SimplexCount; I++)
+        {
+            if(LengthSq(Simplex[I]) > MaxSqMagnitude)
+            {
+                MaxSqMagnitude = LengthSq(Simplex[I]);
+            }
+        }
+        if(Dot(A + Dir, Dir) <= 2.0f*Epsilon * MaxSqMagnitude)
         {
             Result = false;
             break;
         } 
+        if(Contains(Simplex, SimplexCount, A))
+        {
+            Result = false;
+            break;
+        }
+        SimplexA[SimplexCount] = Aa;
+        SimplexB[SimplexCount] = Ab;
         Simplex[SimplexCount++] = A;
-        if(DoSimplex(&SimplexCount, Simplex, &Dir))
+        Assert(VectorsAreEqual(Simplex[SimplexCount-1], SimplexA[SimplexCount-1] - SimplexB[SimplexCount-1]));
+        if(DoSimplex(&SimplexCount, Simplex, &Dir, SimplexA, SimplexB))
         {
             Result = true;
             break;
@@ -866,11 +948,14 @@ Intersect(game_object *ObjA, game_object *ObjB)
                 for(vec3 SearchDir : SearchDirections)
                 {
                     // Simplex[1] = Support(SearchDir, MDCount, MD);
-                    Simplex[1] = Support(SearchDir, SphereP, SphereRadius) - Support(-SearchDir, ArrayCount(APolygonVertices), APolygonVertices);
+                    SimplexA[1] = Support(SearchDir, ArrayCount(BPolygonVertices), BPolygonVertices);
+                    SimplexB[1] = Support(-SearchDir, ArrayCount(APolygonVertices), APolygonVertices);
+                    Simplex[1] = SimplexA[1] - SimplexB[1];
 
                     if(LengthSq(Simplex[1] - Simplex[0]) >= ToleranceSq)
                     {
                         SimplexCount++;
+                        Assert(VectorsAreEqual(Simplex[SimplexCount-1], SimplexA[SimplexCount-1] - SimplexB[SimplexCount-1]));
                         break;
                     }
                 }
@@ -918,11 +1003,14 @@ Intersect(game_object *ObjA, game_object *ObjB)
                     Search < 6;
                     Search++)
                 {
-                    Simplex[2] = Support(SearchDir, SphereP, SphereRadius) - Support(-SearchDir, ArrayCount(APolygonVertices), APolygonVertices);
+                    SimplexA[2] = Support(SearchDir, ArrayCount(BPolygonVertices), BPolygonVertices);
+                    SimplexB[2] = Support(-SearchDir, ArrayCount(APolygonVertices), APolygonVertices);
+                    Simplex[2] = SimplexA[2] - SimplexB[2];
 
                     if(Dot(Simplex[2], SearchDir) >= ToleranceSq)
                     {
                         SimplexCount++;
+                        Assert(VectorsAreEqual(Simplex[SimplexCount-1], SimplexA[SimplexCount-1] - SimplexB[SimplexCount-1]));
                         break;
                     }
 
@@ -935,15 +1023,20 @@ Intersect(game_object *ObjA, game_object *ObjB)
             case 3:
             {
                 vec3 SearchDir = Cross(Simplex[1] - Simplex[0], Simplex[2] - Simplex[0]);
-                Simplex[3] = Support(SearchDir, SphereP, SphereRadius) - Support(-SearchDir, ArrayCount(APolygonVertices), APolygonVertices);
+                SimplexA[3] = Support(SearchDir, ArrayCount(BPolygonVertices), BPolygonVertices);
+                SimplexB[3] = Support(-SearchDir, ArrayCount(APolygonVertices), APolygonVertices);
+                Simplex[3] = SimplexA[3] - SimplexB[3];
                 
                 if(Dot(Simplex[3], SearchDir) < ToleranceSq)
                 {
                     SearchDir = -SearchDir;
-                    Simplex[3] = Support(SearchDir, SphereP, SphereRadius) - Support(-SearchDir, ArrayCount(APolygonVertices), APolygonVertices);
+                    SimplexA[3] = Support(SearchDir, ArrayCount(BPolygonVertices), BPolygonVertices);
+                    SimplexB[3] = Support(-SearchDir, ArrayCount(APolygonVertices), APolygonVertices);
+                    Simplex[3] = SimplexA[3] - SimplexB[3];
                 }
 
                 SimplexCount++;
+                Assert(VectorsAreEqual(Simplex[SimplexCount-1], SimplexA[SimplexCount-1] - SimplexB[SimplexCount-1]));
                 Assert(SimplexCount == 4);
             }
         }
@@ -963,9 +1056,27 @@ Intersect(game_object *ObjA, game_object *ObjB)
             Simplex[1] = Simplex[2];
             Simplex[2] = Temp;
 
+            Temp = SimplexA[1];
+            SimplexA[1] = SimplexA[2];
+            SimplexA[2] = Temp;
+
+            Temp = SimplexB[1];
+            SimplexB[1] = SimplexB[2];
+            SimplexB[2] = Temp;
+
             C = Simplex[1];
             B = Simplex[2];
+                
+            Assert(VectorsAreEqual(Simplex[0], SimplexA[0] - SimplexB[0]));
+            Assert(VectorsAreEqual(Simplex[1], SimplexA[1] - SimplexB[1]));
+            Assert(VectorsAreEqual(Simplex[2], SimplexA[2] - SimplexB[2]));
+            Assert(VectorsAreEqual(Simplex[3], SimplexA[3] - SimplexB[3]));
         }
+
+        Assert(VectorsAreEqual(Simplex[0], SimplexA[0] - SimplexB[0]));
+        Assert(VectorsAreEqual(Simplex[1], SimplexA[1] - SimplexB[1]));
+        Assert(VectorsAreEqual(Simplex[2], SimplexA[2] - SimplexB[2]));
+        Assert(VectorsAreEqual(Simplex[3], SimplexA[3] - SimplexB[3]));
 
         struct triangle
         {
@@ -974,17 +1085,19 @@ Intersect(game_object *ObjA, game_object *ObjB)
                 struct
                 {
                     vec3 A, B, C;
+                    vec3 aA, aB, aC;
+                    vec3 bA, bB, bC;
                 };
-                vec3 E[3];
+                vec3 E[9];
             };
         };
 
         // NOTE(georgy): Push first 4 triangles
         std::vector<triangle> Triangles;
-        Triangles.push_back({A, B, C});
-        Triangles.push_back({A, C, D}); 
-        Triangles.push_back({A, D, B});
-        Triangles.push_back({C, B, D});
+        Triangles.push_back({A, B, C, SimplexA[3], SimplexA[2], SimplexA[1], SimplexB[3], SimplexB[2], SimplexB[1]});
+        Triangles.push_back({A, C, D, SimplexA[3], SimplexA[1], SimplexA[0], SimplexB[3], SimplexB[1], SimplexB[0]}); 
+        Triangles.push_back({A, D, B, SimplexA[3], SimplexA[0], SimplexA[2], SimplexB[3], SimplexB[0], SimplexB[2]});
+        Triangles.push_back({C, B, D, SimplexA[1], SimplexA[2], SimplexA[0], SimplexB[1], SimplexB[2], SimplexB[0]});
 
         vec3 PenetrationVector = vec3(0.0f, 0.0f, 0.0f);
         while(true)
@@ -1007,11 +1120,41 @@ Intersect(game_object *ObjA, game_object *ObjB)
                 }
             }
 
-            vec3 P = Support(ClosestNormal, SphereP, SphereRadius) - Support(-ClosestNormal, ArrayCount(APolygonVertices), APolygonVertices);
+            vec3 aP = Support(ClosestNormal, ArrayCount(BPolygonVertices), BPolygonVertices);
+            vec3 bP = Support(-ClosestNormal, ArrayCount(APolygonVertices), APolygonVertices);
+            vec3 P = aP - bP;
             r32 D = Dot(P, ClosestNormal);
             if(Absolute(D - ClosestDist) < Tolerance)
             {
+                triangle Triangle = Triangles[ClosestTriangleIndex];
+                vec3 TriangleNormal = Normalize(Cross(Triangle.B - Triangle.A, Triangle.C - Triangle.A));
+                r32 Dist = Dot(TriangleNormal, O - Triangle.A);
+                vec3 ProjO = O - TriangleNormal*(Dist / LengthSq(TriangleNormal)); 
+
+                r32 ProjOBC = Dot(TriangleNormal, Cross(Triangle.B - ProjO, Triangle.C - ProjO));
+                r32 ProjOCA = Dot(TriangleNormal, Cross(Triangle.C - ProjO, Triangle.A - ProjO));
+                r32 ProjOAB = Dot(TriangleNormal, Cross(Triangle.A - ProjO, Triangle.B - ProjO));
+
+                r32 u = ProjOBC / (ProjOAB + ProjOCA + ProjOBC);
+                r32 v = ProjOCA / (ProjOAB + ProjOCA + ProjOBC);
+                r32 w = 1.0f - u - v;
+
+                vec3 TestProjO = u*Triangle.A + v*Triangle.B + w*Triangle.C;
+
+                Assert(VectorsAreEqual(Triangle.A, Triangle.aA - Triangle.bA));
+                Assert(VectorsAreEqual(Triangle.B, Triangle.aB - Triangle.bB));
+                Assert(VectorsAreEqual(Triangle.C, Triangle.aC - Triangle.bC));
+
+                // NOTE(georgy): 'A' object here is one that is A here "Support(A) - Support(B)""
+                vec3 ContactPForA = u*Triangle.aA + v*Triangle.aB + w*Triangle.aC;
+                vec3 ContactPForB = u*Triangle.bA + v*Triangle.bB + w*Triangle.bC;
+
                 PenetrationVector = D*ClosestNormal;
+
+                CollisionInfo->ContactP = ContactPForA;
+                CollisionInfo->Normal = ClosestNormal;
+                CollisionInfo->PenetrationVector = PenetrationVector;
+
                 break;
             }
             else
@@ -1020,6 +1163,12 @@ Intersect(game_object *ObjA, game_object *ObjB)
                 {
                     vec3 Start;
                     vec3 End;
+
+                    vec3 aStart;
+                    vec3 aEnd;
+
+                    vec3 bStart;
+                    vec3 bEnd;
                 };
 
                 std::vector<edge> Edges;
@@ -1037,7 +1186,7 @@ Intersect(game_object *ObjA, game_object *ObjB)
                             I0 < 3;
                             I1 = I0, I0++)
                         {
-                            edge Edge = { Triangle.E[I1], Triangle.E[I0] };
+                            edge Edge = { Triangle.E[I1], Triangle.E[I0], Triangle.E[I1 + 3], Triangle.E[I0 + 3], Triangle.E[I1 + 6], Triangle.E[I0 + 6]};
 
                             b32 ContainsReverseEdge = false;
                             u32 ReverseEdgeIndex = 0;
@@ -1076,19 +1225,19 @@ Intersect(game_object *ObjA, game_object *ObjB)
                     EdgeIndex++)
                 {
                     edge Edge = Edges[EdgeIndex];
-                    Triangles.push_back({Edge.Start, Edge.End, P});
+                    Triangles.push_back({Edge.Start, Edge.End, P, Edge.aStart, Edge.aEnd, aP, Edge.bStart, Edge.bEnd, bP});
                 }
             }
         }
 
-        ObjA->RigidBody.P += PenetrationVector;
+        // ObjA->RigidBody.P += PenetrationVector;
     }
 
     return(Result);
 }
 
 internal model
-InitSphereMesh()
+InitSphereMesh(void)
 {
     u32 ParallelCount = 10;
     u32 MeridianCount = 10;
@@ -1177,53 +1326,53 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     if(!GameState->IsInitialized)
     {
         Platform.CompileShader(&GameState->Shader.Handle, "shaders/shader.glsl");
-
+        
         r32 CubeVertices[] = {
-            // Back face
-            -0.5f, -0.5f, -0.5f,
-            0.5f,  0.5f, -0.5f,
-            0.5f, -0.5f, -0.5f,
-            0.5f,  0.5f, -0.5f,
-            -0.5f, -0.5f, -0.5f,
-            -0.5f,  0.5f, -0.5f,
-            // Front face
-            -0.5f, -0.5f,  0.5f,
-            0.5f, -0.5f,  0.5f,
-            0.5f,  0.5f,  0.5f,
-            0.5f,  0.5f,  0.5f,
-            -0.5f,  0.5f,  0.5f,
-            -0.5f, -0.5f,  0.5f,
-            // Left face
-            -0.5f,  0.5f,  0.5f,
-            -0.5f,  0.5f, -0.5f,
-            -0.5f, -0.5f, -0.5f,
-            -0.5f, -0.5f, -0.5f,
-            -0.5f, -0.5f,  0.5f,
-            -0.5f,  0.5f,  0.5f,
-            // Right face
-            0.5f,  0.5f,  0.5f,
-            0.5f, -0.5f, -0.5f,
-            0.5f,  0.5f, -0.5f,
-            0.5f, -0.5f, -0.5f,
-            0.5f,  0.5f,  0.5f,
-            0.5f, -0.5f,  0.5f,
-            // Bottom face
-            -0.5f, -0.5f, -0.5f,
-            0.5f, -0.5f, -0.5f,
-            0.5f, -0.5f,  0.5f,
-            0.5f, -0.5f,  0.5f,
-            -0.5f, -0.5f,  0.5f,
-            -0.5f, -0.5f, -0.5f,
-            // Top face
-            -0.5f,  0.5f, -0.5f,
-            0.5f,  0.5f , 0.5f,
-            0.5f,  0.5f, -0.5f,
-            0.5f,  0.5f,  0.5f,
-            -0.5f,  0.5f, -0.5f,
-            -0.5f,  0.5f,  0.5f,
-        };
+            // back face
+            -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, 
+            0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, 
+            0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, 
+            0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, 
+            -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, 
+            -0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f, 
+            // front face
+            -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, 
+            0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, 
+            0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, 
+            0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, 
+            -0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f, 
+            -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f, 
+            // left face
+            -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f, 
+            -0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f, 
+            -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f, 
+            -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f, 
+            -0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f, 
+            -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f, 
+            // right face
+            0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f, 
+            0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f, 
+            0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f, 
+            0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f, 
+            0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f, 
+            0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f, 
+            // bottom face
+            -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, 
+            0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, 
+            0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, 
+            0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, 
+            -0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f, 
+            -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f, 
+            // top face
+            -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f, 
+            0.5f,  0.5f , 0.5f,  0.0f,  1.0f,  0.0f, 
+            0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f, 
+            0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, 
+            -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f, 
+            -0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f, 
+	    };
 
-        InitModel(&GameState->Cube, sizeof(CubeVertices), CubeVertices, 36, 3*sizeof(r32));
+        InitModel(&GameState->Cube, sizeof(CubeVertices), CubeVertices, 36, 6*sizeof(r32));
 
         r32 QuadVertices[] = 
         {
@@ -1240,28 +1389,96 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         GameState->Sphere = InitSphereMesh();
 
-        GameState->GameObjectCount = 2;
-        GameState->Hero = GameState->GameObjects;
+        GameState->GameObjectCount = 1;
+        GameState->Hero = GameState->GameObjects + 0;
         GameState->Hero->Type = GameObject_Cube;
         GameState->Hero->Model = &GameState->Cube;
         GameState->Hero->Width = 1.0f;
         GameState->Hero->Height = 1.0f;
         GameState->Hero->Depth = 1.0f;
-        GameState->Hero->RigidBody.P = vec3(0.0f, 0.0f, 0.0f);
+        GameState->Hero->RigidBody.P = vec3(1.5f, 8.0f, 0.0f);
         GameState->Hero->RigidBody.Mass = 6.0f;
-        GameState->Hero->RigidBody.MomentOfInertia = (1.0f / 12.0f) * GameState->Hero->RigidBody.Mass * 
-                                                      (Square(GameState->Hero->Width) + Square(GameState->Hero->Height));
+        r32 OneOverTwelve = 1.0f / 12.0f;
+        r32 Mass = GameState->Hero->RigidBody.Mass;
+        r32 Width = GameState->Hero->Width;
+        r32 Height = GameState->Hero->Height;
+        r32 Depth = GameState->Hero->Depth;
+        vec3 InertiaTensorMainDiagonal = vec3(OneOverTwelve*Mass*(Square(Height) + Square(Depth)), 
+                                              OneOverTwelve*Mass*(Square(Width) + Square(Depth)),
+                                              OneOverTwelve*Mass*(Square(Width) + Square(Height)));
+        GameState->Hero->RigidBody.InertiaTensor = Scaling3x3(InertiaTensorMainDiagonal);
+        GameState->Hero->RigidBody.InverseInertiaTensor = Inverse3x3(GameState->Hero->RigidBody.InertiaTensor);
+        GameState->Hero->RigidBody.Orientation = Rotation3x3(25.0f, vec3(1.0f, 0.0f, 0.0f));
+        GameState->Hero->RigidBody.InverseOrientation = Transpose3x3(GameState->Hero->RigidBody.Orientation);
+        GameState->Hero->RigidBody.GlobalInverseInertiaTensor = GameState->Hero->RigidBody.Orientation *  
+                                                                GameState->Hero->RigidBody.InverseInertiaTensor * 
+                                                                GameState->Hero->RigidBody.InverseOrientation;
+        GameState->Hero->RigidBody.CoeffOfRestitution = 0.3f;
+        GameState->Hero->RigidBody.CoeffOfFriction = 0.1f;
+        
+        for(i32 ZOffset = -1;
+            ZOffset <= 1;
+            ZOffset++)
+        for(i32 YOffset = 0;
+            YOffset <= 2;
+            YOffset++)
+        {
+            for(i32 XOffset = -1;
+                XOffset <= 2;
+                XOffset++)
+            {
+                game_object *GameObject = &GameState->GameObjects[GameState->GameObjectCount++];
 
-        game_object *GameObject = &GameState->GameObjects[1];
-        GameObject->Type = GameObject_Cube;
-        GameObject->Model = &GameState->Sphere;
-        GameObject->Width = 1.0f;
-        GameObject->Height = 1.0f;
-        GameObject->Depth = 1.0f;
-        GameObject->RigidBody.P = vec3(0.0f, 0.0f, -3.0f);
-        GameObject->RigidBody.Mass = 6.0f;
-        GameObject->RigidBody.MomentOfInertia = (1.0f / 12.0f) * GameState->Hero->RigidBody.Mass * 
-                                                      (Square(GameState->Hero->Width) + Square(GameState->Hero->Height));
+                GameObject->Type = GameObject_Cube;
+                GameObject->Model = &GameState->Cube;
+                GameObject->Width = 1.0f;
+                GameObject->Height = 1.0f;
+                GameObject->Depth = 1.0f;
+                GameObject->RigidBody.P = vec3(1.0f + 1.5f * XOffset, 2.0f*YOffset + 0.001f, 1.75f*ZOffset);
+                GameObject->RigidBody.Mass = 6.0f;
+                Mass = GameObject->RigidBody.Mass;
+                Width = GameObject->Width;
+                Height = GameObject->Height;
+                Depth = GameObject->Depth;
+                InertiaTensorMainDiagonal = vec3(OneOverTwelve*Mass*(Square(Height) + Square(Depth)), 
+                                                OneOverTwelve*Mass*(Square(Width) + Square(Depth)),
+                                                OneOverTwelve*Mass*(Square(Width) + Square(Height)));
+                GameObject->RigidBody.InertiaTensor = Scaling3x3(InertiaTensorMainDiagonal);
+                GameObject->RigidBody.InverseInertiaTensor = Inverse3x3(GameObject->RigidBody.InertiaTensor);
+                GameObject->RigidBody.Orientation = Identity3x3();
+                GameObject->RigidBody.InverseOrientation = Transpose3x3(GameObject->RigidBody.Orientation);
+                GameObject->RigidBody.GlobalInverseInertiaTensor = GameObject->RigidBody.Orientation *  
+                                                                   GameObject->RigidBody.InverseInertiaTensor * 
+                                                                   GameObject->RigidBody.InverseOrientation;
+                GameObject->RigidBody.CoeffOfRestitution = 0.3f;
+                GameObject->RigidBody.CoeffOfFriction = 0.1f;
+            }
+        }
+
+        game_object *GameObject = &GameState->GameObjects[GameState->GameObjectCount++];
+        GameObject->Type = GameObject_Wall;
+        GameObject->Model = &GameState->Cube;
+        GameObject->Width = 1000.0f;
+        GameObject->Height = 10.0f;
+        GameObject->Depth = 1000.0f;
+        GameObject->RigidBody.P = vec3(0.0f, -5.5f, 0.0f);
+        GameObject->RigidBody.Mass = 0.0f;
+        Mass = GameObject->RigidBody.Mass;
+        Width = GameObject->Width;
+        Height = GameObject->Height;
+        Depth = GameObject->Depth;
+        InertiaTensorMainDiagonal = vec3(OneOverTwelve*Mass*(Square(Height) + Square(Depth)), 
+                                         OneOverTwelve*Mass*(Square(Width) + Square(Depth)),
+                                         OneOverTwelve*Mass*(Square(Width) + Square(Height)));
+        GameObject->RigidBody.InertiaTensor = Scaling3x3(InertiaTensorMainDiagonal);
+        GameObject->RigidBody.InverseInertiaTensor = Inverse3x3(GameObject->RigidBody.InertiaTensor);
+        GameObject->RigidBody.Orientation = Identity3x3();
+        GameObject->RigidBody.InverseOrientation = Transpose3x3(GameObject->RigidBody.Orientation);
+        GameObject->RigidBody.GlobalInverseInertiaTensor = GameObject->RigidBody.Orientation *  
+                                                           GameObject->RigidBody.InverseInertiaTensor * 
+                                                           GameObject->RigidBody.InverseOrientation;
+        GameObject->RigidBody.CoeffOfRestitution = 0.3f;
+        GameObject->RigidBody.CoeffOfFriction = 0.0f;   
 
         GameState->IsInitialized = true;
     }
@@ -1279,7 +1496,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     r32 PitchRadians = Radians(Camera->CameraPitch);
     r32 HeadRadians = Radians(Camera->CameraHead);
 
-    r32 CameraDistanceFromHero = 5.0f;
+    r32 CameraDistanceFromHero = 20.0f;
     r32 FloorDistanceFromHero = CameraDistanceFromHero * Cos(-PitchRadians);
     
     r32 XOffsetFromHero = FloorDistanceFromHero * Sin(HeadRadians);
@@ -1291,46 +1508,6 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     vec3 Forward = Normalize(vec3(CameraForward.x, 0.0f, CameraForward.z));
     vec3 CameraRight = Normalize(Cross(Forward, vec3(0.0f, 1.0f, 1.0f)));
     r32 Theta = Degrees(ATan2(Forward.z, Forward.x)) - 90.0f;
-    if(Input->MoveForward.EndedDown)
-    {
-        GameState->Hero->RigidBody.Orientation = Theta;
-        GameState->Hero->RigidBody.P += 20.0f*dt*CameraForward;
-    }
-    if(Input->MoveBack.EndedDown)
-    {
-        GameState->Hero->RigidBody.Orientation = Theta + 180.0f;
-        GameState->Hero->RigidBody.P += 20.0f*dt*-CameraForward;
-    }
-    if(Input->MoveRight.EndedDown)
-    {
-        GameState->Hero->RigidBody.Orientation = Theta - 90.0f;
-        GameState->Hero->RigidBody.P += 20.0f*dt*CameraRight;
-    }
-    if(Input->MoveLeft.EndedDown)
-    {
-        GameState->Hero->RigidBody.Orientation = Theta + 90.0f;
-        GameState->Hero->RigidBody.P += 20.0f*dt*-CameraRight;
-    }
-    if(Input->MoveForward.EndedDown && 
-        Input->MoveRight.EndedDown)
-    {
-        GameState->Hero->RigidBody.Orientation = Theta - 45.0f;
-    }
-    if(Input->MoveForward.EndedDown && 
-        Input->MoveLeft.EndedDown)
-    {
-        GameState->Hero->RigidBody.Orientation = Theta + 45.0f;
-    }
-    if(Input->MoveBack.EndedDown && 
-        Input->MoveRight.EndedDown)
-    {
-        GameState->Hero->RigidBody.Orientation = Theta - 135.0f;
-    }
-    if(Input->MoveBack.EndedDown && 
-        Input->MoveLeft.EndedDown)
-    {
-        GameState->Hero->RigidBody.Orientation = Theta + 135.0f;
-    }
 
     Camera->P = GameState->Hero->RigidBody.P + CameraOffsetFromHero;
     Camera->Dir = CameraForward;
@@ -1343,14 +1520,241 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     PushShader(RenderCommandBuffer, GameState->Shader);
     PushMat4(RenderCommandBuffer, "Projection", &Projection);
     PushMat4(RenderCommandBuffer, "View", &View);
-#if 1
-    if(Intersect(&GameState->GameObjects[0], &GameState->GameObjects[1]))
+    PushVec3(RenderCommandBuffer, "CamP", Camera->P);
+    PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 0.0f, 1.0f));
+
+    for(u32 GameObjectIndex = 0;
+        GameObjectIndex < GameState->GameObjectCount;
+        GameObjectIndex++)
     {
-        PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 1.0f, 0.0f));
+        if(GameObjectIndex != (GameState->GameObjectCount-1))
+        {
+            game_object *GameObject = GameState->GameObjects + GameObjectIndex;
+            rigid_body *RigidBody = &GameObject->RigidBody;
+        
+            RigidBody->ForceAccumulated = vec3(0.0f, 0.0f, 0.0f);
+            vec3 ddP = RigidBody->ForceAccumulated * (1.0f / RigidBody->Mass);
+            ddP += vec3(0.0f, -9.8f, 0.0f);
+
+            RigidBody->dP += dt*ddP;
+            RigidBody->dP *= (1.0f - dt*1.0f);
+            RigidBody->P += dt*RigidBody->dP;
+
+            RigidBody->AngularMomentum += dt*RigidBody->TorqueAccumulated;
+            RigidBody->AngularMomentum *= (1.0f - dt*1.0f);
+            RigidBody->AngularVelocity = RigidBody->GlobalInverseInertiaTensor*RigidBody->AngularMomentum;
+            RigidBody->Orientation = Rotation3x3(dt*Degrees(Length(RigidBody->AngularVelocity)), 
+                                                 RigidBody->AngularVelocity) *
+                                     RigidBody->Orientation;
+
+            // NOTE(georgy): Reorthogonalize orientation matrix 
+            vec3 XAxis = vec3(RigidBody->Orientation.a11, RigidBody->Orientation.a21, RigidBody->Orientation.a31);
+            vec3 YAxis = vec3(RigidBody->Orientation.a12, RigidBody->Orientation.a22, RigidBody->Orientation.a32);
+            vec3 ZAxis = vec3(RigidBody->Orientation.a13, RigidBody->Orientation.a23, RigidBody->Orientation.a33);
+
+            XAxis = Normalize(XAxis);
+            YAxis = Normalize(YAxis - XAxis*Dot(YAxis, XAxis));
+            ZAxis = Normalize(ZAxis - XAxis*Dot(ZAxis, XAxis) - YAxis*Dot(ZAxis, YAxis));
+            
+            RigidBody->Orientation.a11 = XAxis.x;
+            RigidBody->Orientation.a21 = XAxis.y;
+            RigidBody->Orientation.a31 = XAxis.z;
+            RigidBody->Orientation.a12 = YAxis.x;
+            RigidBody->Orientation.a22 = YAxis.y;
+            RigidBody->Orientation.a33 = YAxis.z;
+            RigidBody->Orientation.a13 = ZAxis.x;
+            RigidBody->Orientation.a23 = ZAxis.y;
+            RigidBody->Orientation.a33 = ZAxis.z;
+            
+            RigidBody->InverseOrientation = Transpose3x3(RigidBody->Orientation);
+            RigidBody->GlobalInverseInertiaTensor = RigidBody->Orientation * 
+                                                    RigidBody->InverseInertiaTensor * 
+                                                    RigidBody->InverseOrientation;
+        }
     }
-    else
+
+    struct collision_data
     {
-        PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 0.0f, 1.0f));
+        game_object *A;
+        game_object *B;
+        collision_info Manifold;
+    };
+
+    u32 CollisionCount = 0;
+    collision_data Collisions[64];
+
+    for(u32 GameObjectIndex = 0;
+        GameObjectIndex < GameState->GameObjectCount - 1;
+        GameObjectIndex++)
+    {
+        game_object *GameObject = GameState->GameObjects + GameObjectIndex;
+
+        for(u32 TestObjectIndex = GameObjectIndex + 1;
+            TestObjectIndex < GameState->GameObjectCount;
+            TestObjectIndex++)
+        {
+            game_object *TestGameObject = GameState->GameObjects + TestObjectIndex;
+
+            if(Intersect(&Collisions[CollisionCount].Manifold, GameObject, TestGameObject))
+            {
+                Collisions[CollisionCount].A = GameObject;
+                Collisions[CollisionCount].B = TestGameObject;
+                CollisionCount++;
+            }
+        }
+    }
+
+    for(u32 CollisionIndex = 0;
+        CollisionIndex < CollisionCount;
+        CollisionIndex++)
+    {
+        collision_data *Collision = Collisions + CollisionIndex;
+        collision_info *Manifold = &Collision->Manifold;
+
+        rigid_body *A = &Collision->A->RigidBody;
+        rigid_body *B = &Collision->B->RigidBody;
+        
+        // NOTE(georgy): Linear projection
+        r32 Slop = 0.01f;
+        if(Length(Manifold->PenetrationVector) > Slop)
+        {
+            r32 Percent = 0.2f;
+            vec3 PenetrationVector = Percent*Manifold->PenetrationVector;
+            if(Collision->B->Type == GameObject_Wall)
+            {
+                A->P += PenetrationVector;
+            }
+            else
+            {
+                PenetrationVector *= (1.0f / (A->Mass + B->Mass));
+                A->P += PenetrationVector * B->Mass;
+                B->P -= PenetrationVector * A->Mass;
+            }
+        }
+
+        vec3 N = Manifold->Normal;
+        r32 AbsX = Absolute(N.x);
+        r32 AbsY = Absolute(N.y);
+        r32 AbsZ = Absolute(N.z);
+        
+        vec3 Axis = vec3(0.0f, 0.0f, 0.0f);
+        if(AbsX < AbsY)
+        {
+            if(AbsX < AbsZ)
+            {
+                Axis.x = 1.0f;
+            }
+            else
+            {
+                Axis.z = 1.0f;
+            }
+        }
+        else if(AbsY < AbsZ)
+        {
+            Axis.y = 1.0f;
+        }
+        else
+        {
+            Axis.z = 1.0f;
+        }
+
+        vec3 Tangent1 = Normalize(Cross(N, Axis));
+        vec3 Tangent2 = Normalize(Cross(N, Tangent1));
+
+        r32 CoeffOfRestitution = Min(A->CoeffOfRestitution, B->CoeffOfRestitution);
+        r32 CoeffOfFriction = Min(A->CoeffOfFriction, B->CoeffOfFriction);
+
+        vec3 aP = Manifold->ContactP - A->P;
+        vec3 VelocityA = A->dP + Cross(A->AngularVelocity, aP);
+        r32 OneOverMassA = 1.0f / A->Mass;
+
+        r32 ImpulseMagnitude = 0.0f;
+        r32 ImpulseMagnitudeTangent1 = 0.0f;
+        r32 ImpulseMagnitudeTangent2 = 0.0f;
+        if(B->Mass == 0.0f)
+        {
+            if(Dot(N, VelocityA) < 0.0f)
+            {
+                r32 PenetrationMultiplier = 1.0f + 1.0f*Length(Manifold->PenetrationVector);
+
+                r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(VelocityA, N);
+                r32 ImpulseDenom = (OneOverMassA + (1.0f / 600000.0f)) + Dot(N, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, N), aP)));
+                ImpulseMagnitude = ImpulseNom / ImpulseDenom;
+                ImpulseMagnitude *= PenetrationMultiplier;
+
+                r32 ImpulseNomTangent1 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA, Tangent1);
+                r32 ImpulseDenomTangent1 = (OneOverMassA + (1.0f / 600000.0f)) + Dot(Tangent1, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent1), aP)));   
+                ImpulseMagnitudeTangent1 = ImpulseNomTangent1 / ImpulseDenomTangent1;
+                ImpulseMagnitudeTangent1 *= PenetrationMultiplier;
+                if(Absolute(ImpulseMagnitudeTangent1) > CoeffOfFriction*ImpulseMagnitude)
+                {
+                    ImpulseMagnitudeTangent1 = Sign(ImpulseMagnitudeTangent1)*CoeffOfFriction*ImpulseMagnitude;
+                }
+
+                r32 ImpulseNomTangent2 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA, Tangent2);
+                r32 ImpulseDenomTangent2 = (OneOverMassA + (1.0f / 600000.0f)) + Dot(Tangent2, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent2), aP)));   
+                ImpulseMagnitudeTangent2 = ImpulseNomTangent2 / ImpulseDenomTangent2;
+                ImpulseMagnitudeTangent2 *= PenetrationMultiplier;
+                if(Absolute(ImpulseMagnitudeTangent2) > CoeffOfFriction*ImpulseMagnitude)
+                {
+                    ImpulseMagnitudeTangent2 = Sign(ImpulseMagnitudeTangent2)*CoeffOfFriction*ImpulseMagnitude;
+                }
+            }
+        }
+        else
+        {
+            vec3 bP = Manifold->ContactP - B->P;
+            vec3 VelocityB = B->dP + Cross(B->AngularVelocity, bP);
+            r32 OneOverMassB = 1.0f / B->Mass;
+
+            if(Dot(N, VelocityA - VelocityB) < 0.0f)
+            {
+                r32 PenetrationMultiplier = 1.0f + 1.0f*Length(Manifold->PenetrationVector);
+
+                r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(VelocityA - VelocityB, N);
+                r32 ImpulseDenom = (OneOverMassA + OneOverMassB)+
+                                   Dot(N, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, N), aP))) + 
+                                   Dot(N, (Cross(B->GlobalInverseInertiaTensor*Cross(bP, N), bP)));
+                ImpulseMagnitude = ImpulseNom / ImpulseDenom;
+                ImpulseMagnitude *= PenetrationMultiplier;
+
+                r32 ImpulseNomTangent1 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA - VelocityB, Tangent1);
+                r32 ImpulseDenomTangent1 = (OneOverMassA + OneOverMassB)+
+                                           Dot(Tangent1, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent1), aP))) + 
+                                           Dot(Tangent1, (Cross(B->GlobalInverseInertiaTensor*Cross(bP, Tangent1), bP)));
+                ImpulseMagnitudeTangent1 = ImpulseNomTangent1 / ImpulseDenomTangent1;
+                ImpulseMagnitudeTangent1 *= PenetrationMultiplier;
+                if(Absolute(ImpulseMagnitudeTangent1) > CoeffOfFriction*ImpulseMagnitude)
+                {
+                    ImpulseMagnitudeTangent1 = Sign(ImpulseMagnitudeTangent1)*CoeffOfFriction*ImpulseMagnitude;
+                }
+
+                r32 ImpulseNomTangent2 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA - VelocityB, Tangent2);
+                r32 ImpulseDenomTangent2 = (OneOverMassA + OneOverMassB)+
+                                           Dot(Tangent2, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent2), aP))) + 
+                                           Dot(Tangent2, (Cross(B->GlobalInverseInertiaTensor*Cross(bP, Tangent2), bP)));
+                ImpulseMagnitudeTangent2 = ImpulseNomTangent2 / ImpulseDenomTangent2;
+                ImpulseMagnitudeTangent2 *= PenetrationMultiplier;
+                if(Absolute(ImpulseMagnitudeTangent2) > CoeffOfFriction*ImpulseMagnitude)
+                {
+                    ImpulseMagnitudeTangent2 = Sign(ImpulseMagnitudeTangent2)*CoeffOfFriction*ImpulseMagnitude;
+                }
+
+                B->dP += (-ImpulseMagnitude * OneOverMassB)*N + 
+                         (-ImpulseMagnitudeTangent1 * OneOverMassB)*Tangent1 +
+                         (-ImpulseMagnitudeTangent2 * OneOverMassB)*Tangent2;
+                B->AngularMomentum += Cross(bP, -ImpulseMagnitude*N) + 
+                                      Cross(bP, -ImpulseMagnitudeTangent1*Tangent1) +
+                                      Cross(bP, -ImpulseMagnitudeTangent2*Tangent2);
+            }
+        }
+        
+        A->dP += (ImpulseMagnitude * OneOverMassA)*N + 
+                 (ImpulseMagnitudeTangent1 * OneOverMassA)*Tangent1 + 
+                 (ImpulseMagnitudeTangent2 * OneOverMassA)*Tangent2;
+        A->AngularMomentum += Cross(aP, ImpulseMagnitude*N) + 
+                              Cross(aP, ImpulseMagnitudeTangent1*Tangent1) + 
+                              Cross(aP, ImpulseMagnitudeTangent2*Tangent2);
     }
 
     for(u32 GameObjectIndex = 0;
@@ -1359,63 +1763,18 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     {
         game_object *GameObject = GameState->GameObjects + GameObjectIndex;
 
-        mat4 Model = Translation(GameObject->RigidBody.P) * Rotation(GameObject->RigidBody.Orientation, vec3(0.0f, 1.0f, 0.0f));
+        mat4 Model = Translation(GameObject->RigidBody.P) * 
+                     Mat4(GameObject->RigidBody.Orientation) * 
+                     Scaling(vec3(GameObject->Width, GameObject->Height, GameObject->Depth));
         PushMat4(RenderCommandBuffer, "Model", &Model);
-        if(GameObjectIndex == 1)
+        if(GameObjectIndex == (GameState->GameObjectCount - 1))
         {
-            DrawModelEBO(RenderCommandBuffer, GameObject->Model);
+            PushVec3(RenderCommandBuffer, "Color", vec3(1.0f, 1.0f, 0.0f));
         }
         else
         {
-            DrawModel(RenderCommandBuffer, GameObject->Model);
+            PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 0.0f, 1.0f));
         }
+        DrawModel(RenderCommandBuffer, GameObject->Model);
     }
-
-#else
-    vec3 Triangle[3] = 
-    {
-        vec3(0.4f, -0.4f, 0.0f),
-        vec3(-0.4f, -0.4f, 0.0f),
-        vec3(0.0f, 0.4f, 0.0f),
-    };
-    PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 0.0f, 0.0f));
-
-    mat4 Model = Identity();
-    PushMat4(RenderCommandBuffer, "Model", &Model);
-    for(u32 I0 = 0, I1 = ArrayCount(Triangle) - 1;
-        I0 < ArrayCount(Triangle);
-        I1 = I0, I0++)
-    {
-        DrawLine(RenderCommandBuffer, Triangle[I1], Triangle[I0]);
-    }
-
-    static vec3 Point = vec3(0.0f, 0.0f, 0.0f);
-    if(Input->MoveForward.EndedDown)
-    {
-        // GameState->Hero->RigidBody.Orientation = Theta;
-        Point += 10.0f*dt*vec3(0.0f, 1.0f, 0.0f);
-    }
-    if(Input->MoveBack.EndedDown)
-    {
-        Point += 10.0f*dt*vec3(0.0f, -1.0f, 0.0f);
-    }
-    if(Input->MoveRight.EndedDown)
-    {
-        Point += 10.0f*dt*vec3(1.0f, 0.0f, 0.0f);;
-    }
-    if(Input->MoveLeft.EndedDown)
-    {
-        Point += 10.0f*dt*vec3(-1.0f, 0.0f, 0.0f);;
-    }
-
-    Model = Translation(Point) * Scaling(0.05f);
-    PushMat4(RenderCommandBuffer, "Model", &Model);
-    DrawModel(RenderCommandBuffer, &GameState->Quad);
-
-    closest_voronoi_region_triangle_point P_VR = ClosestPointInTriangleVR(Point, Triangle[0], Triangle[1], Triangle[2]);
-    Model = Translation(P_VR.P) * Scaling(0.05f);
-    PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 1.0f, 0.0f));
-    PushMat4(RenderCommandBuffer, "Model", &Model);
-    DrawModel(RenderCommandBuffer, &GameState->Quad);
-#endif
 }

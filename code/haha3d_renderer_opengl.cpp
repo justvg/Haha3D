@@ -23,10 +23,10 @@ ReadEntireFileAsString(char *Filepath)
     return(Result);
 }
 
-internal void 
+internal void
 InitOpenGLProperties(void)
 {
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	// glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
 }
@@ -44,6 +44,8 @@ PLATFORM_INIT_BUFFERS(InitBuffers)
     glBufferData(GL_ARRAY_BUFFER, Size, Vertices, GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, Stride, (void *)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, Stride, (void *)(3*sizeof(r32)));
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 } 

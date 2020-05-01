@@ -300,6 +300,24 @@ Normalize(vec3 A)
 }
 
 inline vec3
+NOZ(vec3 A)
+{
+    vec3 Result;
+
+    r32 Len = Length(A);
+    if(Len <= Epsilon)
+    {
+        Result = vec3(0.0f, 0.0f, 0.0f);
+    }
+    else
+    {
+        Result = A * (1.0f / Length(A));
+    }
+
+    return(Result);
+}
+
+inline vec3
 Cross(vec3 A, vec3 B)
 {
     vec3 Result;
@@ -355,6 +373,10 @@ struct closest_voronoi_region_triangle_point
     // NOTE(georgy): These are valid if VR = VoronoiRegion_Edge
     vec3 EdgeP0;
     vec3 EdgeP1;
+
+    // NOTE(georgy): These are valid if VR = VoronoiRegion_Vertex or VR = VoronoiRegion_Edge
+    u32 VertIndex0;
+    u32 VertIndex1;
 };
 
 internal closest_voronoi_region_triangle_point
@@ -380,6 +402,7 @@ ClosestPointInTriangleVR(vec3 P, vec3 A, vec3 B, vec3 C)
     {
         Result.VR = VoronoiRegion_Vertex;
         Result.P = A;
+        Result.VertIndex0 = 0;
         return(Result);
     }
 
@@ -392,6 +415,7 @@ ClosestPointInTriangleVR(vec3 P, vec3 A, vec3 B, vec3 C)
     {
         Result.VR = VoronoiRegion_Vertex;
         Result.P = B;
+        Result.VertIndex0 = 1;
         return(Result);
     }
 
@@ -399,6 +423,7 @@ ClosestPointInTriangleVR(vec3 P, vec3 A, vec3 B, vec3 C)
     {
         Result.VR = VoronoiRegion_Vertex;
         Result.P = C;
+        Result.VertIndex0 = 2;
         return(Result);
     }
 
@@ -410,6 +435,8 @@ ClosestPointInTriangleVR(vec3 P, vec3 A, vec3 B, vec3 C)
         Result.P = A + AB*(sNom / (sNom + sDenom));
         Result.EdgeP0 = A;
         Result.EdgeP1 = B;
+        Result.VertIndex0 = 0;
+        Result.VertIndex1 = 1;
         return(Result);
     }
 
@@ -420,6 +447,8 @@ ClosestPointInTriangleVR(vec3 P, vec3 A, vec3 B, vec3 C)
         Result.P = B + BC*(uNom / (uNom + uDenom));
         Result.EdgeP0 = B;
         Result.EdgeP1 = C;
+        Result.VertIndex0 = 1;
+        Result.VertIndex1 = 2;
         return(Result);
     }
 
@@ -430,6 +459,8 @@ ClosestPointInTriangleVR(vec3 P, vec3 A, vec3 B, vec3 C)
         Result.P = A + AC*(tNom / (tNom + tDenom));
         Result.EdgeP0 = C;
         Result.EdgeP1 = A;
+        Result.VertIndex0 = 2;
+        Result.VertIndex1 = 0;
         return(Result);
     }
 
@@ -714,21 +745,74 @@ Rotation3x3(r32 Angle, vec3 Axis)
     r32 Sine = Sin(Rad);
     r32 Cosine = Cos(Rad);
 
-    Axis = Normalize(Axis);
+    Axis = NOZ(Axis);
+    if((Axis.x == 0.0f) && (Axis.y == 0.0f) && (Axis.z == 0.0f))
+    {
+        Result = Identity3x3();
+    }
+    else
+    {
+        Result.a11 = Axis.x*Axis.x*(1.0f - Cosine) + Cosine;
+        Result.a21 = Axis.x*Axis.y*(1.0f - Cosine) + Axis.z*Sine;
+        Result.a31 = Axis.x*Axis.z*(1.0f - Cosine) - Axis.y*Sine;
 
-    Result.a11 = Axis.x*Axis.x*(1.0f - Cosine) + Cosine;
-	Result.a21 = Axis.x*Axis.y*(1.0f - Cosine) + Axis.z*Sine;
-	Result.a31 = Axis.x*Axis.z*(1.0f - Cosine) - Axis.y*Sine;
+        Result.a12 = Axis.x*Axis.y*(1.0f - Cosine) - Axis.z*Sine;
+        Result.a22 = Axis.y*Axis.y*(1.0f - Cosine) + Cosine;
+        Result.a32 = Axis.y*Axis.z*(1.0f - Cosine) + Axis.x*Sine;
 
-	Result.a12 = Axis.x*Axis.y*(1.0f - Cosine) - Axis.z*Sine;
-	Result.a22 = Axis.y*Axis.y*(1.0f - Cosine) + Cosine;
-	Result.a32 = Axis.y*Axis.z*(1.0f - Cosine) + Axis.x*Sine;
-
-	Result.a13 = Axis.x*Axis.z*(1.0f - Cosine) + Axis.y*Sine;
-	Result.a23 = Axis.y*Axis.z*(1.0f - Cosine) - Axis.x*Sine;
-	Result.a33 = Axis.z*Axis.z*(1.0f - Cosine) + Cosine;
+        Result.a13 = Axis.x*Axis.z*(1.0f - Cosine) + Axis.y*Sine;
+        Result.a23 = Axis.y*Axis.z*(1.0f - Cosine) - Axis.x*Sine;
+        Result.a33 = Axis.z*Axis.z*(1.0f - Cosine) + Cosine;
+    }
 
     return(Result);
+}
+
+internal mat3
+Transpose3x3(const mat3 &M)
+{
+    mat3 Result;
+
+    Result.a11 = M.a11;
+	Result.a21 = M.a12;
+	Result.a31 = M.a13;
+
+	Result.a12 = M.a21;
+	Result.a22 = M.a22;
+	Result.a32 = M.a23;
+
+	Result.a13 = M.a31;
+	Result.a23 = M.a32;
+	Result.a33 = M.a33;
+
+    return(Result);
+}
+
+internal mat3
+Inverse3x3(const mat3 &M)
+{
+    mat3 InverseMatrix = {};
+    
+    r32 Determinant = M.a11*M.a22*M.a33 + M.a12*M.a23*M.a31 + M.a13*M.a21*M.a32 - 
+                      (M.a31*M.a22*M.a13 + M.a32*M.a23*M.a11 + M.a33*M.a21*M.a12);
+    if(Determinant > Epsilon)
+    {
+        r32 OneOverDeterminant = 1.0f / Determinant;
+
+        InverseMatrix.a11 = (M.a22*M.a33 - M.a32*M.a23)*OneOverDeterminant;
+        InverseMatrix.a12 = (-(M.a21*M.a33 - M.a31*M.a23))*OneOverDeterminant;
+        InverseMatrix.a13 = (M.a21*M.a32 - M.a31*M.a22)*OneOverDeterminant;
+        InverseMatrix.a21 = (-(M.a12*M.a33 - M.a32*M.a13))*OneOverDeterminant;
+        InverseMatrix.a22 = (M.a11*M.a33 - M.a31*M.a13)*OneOverDeterminant;
+        InverseMatrix.a23 = (-(M.a11*M.a32 - M.a31*M.a12))*OneOverDeterminant;
+        InverseMatrix.a31 = (M.a12*M.a23 - M.a22*M.a13)*OneOverDeterminant;
+        InverseMatrix.a32 = (-(M.a11*M.a23 - M.a21*M.a13))*OneOverDeterminant;
+        InverseMatrix.a33 = (M.a11*M.a22 - M.a21*M.a12)*OneOverDeterminant;
+
+        InverseMatrix = Transpose3x3(InverseMatrix);
+    }
+
+    return(InverseMatrix);
 }
 
 internal mat3
@@ -855,6 +939,26 @@ Rotation(r32 Angle, vec3 Axis)
 	Result.a24 = 0.0f;
 	Result.a34 = 0.0f;
 	Result.a44 = 1.0f;
+
+    return(Result);
+}
+
+internal mat4
+Mat4(const mat3 &M)
+{
+    mat4 Result;
+
+    Result.a11 = M.a11;
+    Result.a21 = M.a21;
+    Result.a31 = M.a31;
+    Result.a12 = M.a12;
+    Result.a22 = M.a22;
+    Result.a32 = M.a32;
+    Result.a13 = M.a13;
+    Result.a23 = M.a23;
+    Result.a33 = M.a33;
+    Result.a41 = Result.a42 = Result.a43 = Result.a14 = Result.a24 = Result.a34 = 0.0f;
+    Result.a44 = 1.0f;
 
     return(Result);
 }

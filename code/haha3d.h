@@ -39,7 +39,7 @@ class camera
 struct rigid_body
 {
     vec3 ForceAccumulated;
-    r32 TorqueAccumulated;
+    vec3 TorqueAccumulated;
 
     // NOTE(georgy): Linear 
     r32 Mass;
@@ -47,15 +47,23 @@ struct rigid_body
     vec3 P; // NOTE(georgy): This is center of mass in world coordinates
 
     // NOTE(georgy): Angular
-    r32 MomentOfInertia;
-    r32 Orientation; 
-    r32 AngularSpeed;
+    mat3 InertiaTensor;
+    mat3 InverseInertiaTensor;
+    mat3 GlobalInverseInertiaTensor;
+    mat3 Orientation; 
+    mat3 InverseOrientation;
+    vec3 AngularMomentum;
+    vec3 AngularVelocity;
+
+    r32 CoeffOfRestitution;
+    r32 CoeffOfFriction;
 };
 
 enum game_object_type
 {
     GameObject_Rectangle,
     GameObject_Cube,
+    GameObject_Wall,
 };
 struct game_object
 {
@@ -74,7 +82,7 @@ struct game_state
 
     u32 GameObjectCount;
     game_object *Hero;
-    game_object GameObjects[8];
+    game_object GameObjects[64];
 
     camera Camera;
 

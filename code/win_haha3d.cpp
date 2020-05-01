@@ -195,6 +195,7 @@ WinInitOpenGL(HWND Window)
         {
             ModernOpenGLInitialized = true;
 
+            wglSwapIntervalEXT(1);
             InitOpenGLProperties();
         }
     }
@@ -278,6 +279,9 @@ int CALLBACK
 WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowCode)
 {
     QueryPerformanceCounter(&GlobalPerformanceFrequency);
+
+    UINT DesiredSchedulerMS = 1;
+    b32 SleepIsGranular = (timeBeginPeriod(DesiredSchedulerMS) == TIMERR_NOERROR);
 
     char ExecutableFilename[MAX_PATH];
     char *OneAfterLastExecutableFilenameSlash = 0;
@@ -368,7 +372,8 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
 
             win_game_code Game = WinLoadGameCode(GameCodeSourceDLLName, GameCodeTempDLLName);
             
-            GameInput.dtForFrame = 1.0f / 60.0f;
+            r32 TargetSecondsPerFrame = 1.0f / 60.0f;
+            GameInput.dtForFrame = TargetSecondsPerFrame;
             LARGE_INTEGER LastCounter = WinGetPerformanceCounter();
 			while(GlobalRunning)
 			{
@@ -519,12 +524,27 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
                     Game = WinLoadGameCode(GameCodeSourceDLLName, GameCodeTempDLLName);
                 }
 
-                LARGE_INTEGER FrameEndCounter = WinGetPerformanceCounter();
-                GameInput.dtForFrame = WinGetSecondsElapsed(LastCounter, FrameEndCounter);
-                if(GameInput.dtForFrame < (1.0f / 500.0f))
+#if 0
+                r32 SecondsElapsedForFrame = WinGetSecondsElapsed(LastCounter, WinGetPerformanceCounter());
+                if(SecondsElapsedForFrame < TargetSecondsPerFrame)
                 {
-                    GameInput.dtForFrame = (1.0f / 500.0f);
+                    if(SleepIsGranular)
+                    {
+                        DWORD SleepMS = (DWORD)(1000.0f * (TargetSecondsPerFrame - SecondsElapsedForFrame));
+
+                        if(SleepMS > 0)
+                        {
+                            Sleep(SleepMS);
+                        }
+                    }
+
+                    while(SecondsElapsedForFrame < TargetSecondsPerFrame)
+                    {
+                        SecondsElapsedForFrame = WinGetSecondsElapsed(LastCounter, WinGetPerformanceCounter());
+                    }
                 }
+#endif
+                LastCounter = WinGetPerformanceCounter();
 			}
         }
     }

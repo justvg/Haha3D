@@ -173,7 +173,6 @@ vec4i(u32 X, u32 Y, u32 Z, u32 W)
 union mat3
 {
     r32 E[9];
-
     struct 
     {
         r32 a11, a21, a31;
