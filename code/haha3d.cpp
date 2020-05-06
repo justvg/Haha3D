@@ -3,10 +3,6 @@
 #include "haha3d_render_command_buffer.cpp"
 #include <vector>
 
-
-#include <Windows.h>
-#include <stdio.h>
-
 mat4 
 camera::GetRotationMatrix(void)
 { 
@@ -1396,7 +1392,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         GameState->Hero->Width = 1.0f;
         GameState->Hero->Height = 1.0f;
         GameState->Hero->Depth = 1.0f;
-        GameState->Hero->RigidBody.P = vec3(1.5f, 8.0f, 0.0f);
+        GameState->Hero->RigidBody.P = vec3(1.5f, 9.0f, 0.0f);
         GameState->Hero->RigidBody.Mass = 6.0f;
         r32 OneOverTwelve = 1.0f / 12.0f;
         r32 Mass = GameState->Hero->RigidBody.Mass;
@@ -1408,50 +1404,58 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                                               OneOverTwelve*Mass*(Square(Width) + Square(Height)));
         GameState->Hero->RigidBody.InertiaTensor = Scaling3x3(InertiaTensorMainDiagonal);
         GameState->Hero->RigidBody.InverseInertiaTensor = Inverse3x3(GameState->Hero->RigidBody.InertiaTensor);
-        GameState->Hero->RigidBody.Orientation = Rotation3x3(25.0f, vec3(1.0f, 0.0f, 0.0f));
+        GameState->Hero->RigidBody.Orientation = Identity3x3();
+        // GameState->Hero->RigidBody.Orientation = Rotation3x3(25.0f, vec3(1.0f, 0.0f, 0.0f));
         GameState->Hero->RigidBody.InverseOrientation = Transpose3x3(GameState->Hero->RigidBody.Orientation);
         GameState->Hero->RigidBody.GlobalInverseInertiaTensor = GameState->Hero->RigidBody.Orientation *  
                                                                 GameState->Hero->RigidBody.InverseInertiaTensor * 
                                                                 GameState->Hero->RigidBody.InverseOrientation;
         GameState->Hero->RigidBody.CoeffOfRestitution = 0.3f;
         GameState->Hero->RigidBody.CoeffOfFriction = 0.1f;
-        
+
         for(i32 ZOffset = -1;
             ZOffset <= 1;
             ZOffset++)
-        for(i32 YOffset = 0;
-            YOffset <= 2;
-            YOffset++)
         {
-            for(i32 XOffset = -1;
-                XOffset <= 2;
-                XOffset++)
+            for(i32 YOffset = 0;
+                YOffset <= 2;
+                YOffset++)
             {
-                game_object *GameObject = &GameState->GameObjects[GameState->GameObjectCount++];
+                for(i32 XOffset = -1;
+                    XOffset <= 1;
+                    XOffset++)
+                {
+                    game_object *GameObject = &GameState->GameObjects[GameState->GameObjectCount++];
 
-                GameObject->Type = GameObject_Cube;
-                GameObject->Model = &GameState->Cube;
-                GameObject->Width = 1.0f;
-                GameObject->Height = 1.0f;
-                GameObject->Depth = 1.0f;
-                GameObject->RigidBody.P = vec3(1.0f + 1.5f * XOffset, 2.0f*YOffset + 0.001f, 1.75f*ZOffset);
-                GameObject->RigidBody.Mass = 6.0f;
-                Mass = GameObject->RigidBody.Mass;
-                Width = GameObject->Width;
-                Height = GameObject->Height;
-                Depth = GameObject->Depth;
-                InertiaTensorMainDiagonal = vec3(OneOverTwelve*Mass*(Square(Height) + Square(Depth)), 
-                                                OneOverTwelve*Mass*(Square(Width) + Square(Depth)),
-                                                OneOverTwelve*Mass*(Square(Width) + Square(Height)));
-                GameObject->RigidBody.InertiaTensor = Scaling3x3(InertiaTensorMainDiagonal);
-                GameObject->RigidBody.InverseInertiaTensor = Inverse3x3(GameObject->RigidBody.InertiaTensor);
-                GameObject->RigidBody.Orientation = Identity3x3();
-                GameObject->RigidBody.InverseOrientation = Transpose3x3(GameObject->RigidBody.Orientation);
-                GameObject->RigidBody.GlobalInverseInertiaTensor = GameObject->RigidBody.Orientation *  
-                                                                   GameObject->RigidBody.InverseInertiaTensor * 
-                                                                   GameObject->RigidBody.InverseOrientation;
-                GameObject->RigidBody.CoeffOfRestitution = 0.3f;
-                GameObject->RigidBody.CoeffOfFriction = 0.1f;
+                    GameObject->Type = GameObject_Cube;
+                    GameObject->Model = &GameState->Cube;
+                    GameObject->Width = 1.0f;
+                    GameObject->Height = 1.0f;
+                    GameObject->Depth = 1.0f;
+                    GameObject->RigidBody.P = vec3(1.0f + 1.5f * XOffset, 2.0f*(YOffset) + 0.001f, 1.2f*ZOffset);
+                    GameObject->RigidBody.Mass = 6.0f;
+                    Mass = GameObject->RigidBody.Mass;
+                    Width = GameObject->Width;
+                    Height = GameObject->Height;
+                    Depth = GameObject->Depth;
+                    InertiaTensorMainDiagonal = vec3(OneOverTwelve*Mass*(Square(Height) + Square(Depth)), 
+                                                    OneOverTwelve*Mass*(Square(Width) + Square(Depth)),
+                                                    OneOverTwelve*Mass*(Square(Width) + Square(Height)));
+                    GameObject->RigidBody.InertiaTensor = Scaling3x3(InertiaTensorMainDiagonal);
+                    GameObject->RigidBody.InverseInertiaTensor = Inverse3x3(GameObject->RigidBody.InertiaTensor);
+                    if(ZOffset == 0)
+                        GameObject->RigidBody.Orientation = Rotation3x3(45.0f, vec3(1.0f, 0.3f, 0.0f));
+                    else
+                        GameObject->RigidBody.Orientation = Rotation3x3(-45.0f, vec3(1.0f, 0.0f, 4.0f));
+
+                    // GameObject->RigidBody.Orientation = Identity3x3();
+                    GameObject->RigidBody.InverseOrientation = Transpose3x3(GameObject->RigidBody.Orientation);
+                    GameObject->RigidBody.GlobalInverseInertiaTensor = GameObject->RigidBody.Orientation *  
+                                                                    GameObject->RigidBody.InverseInertiaTensor * 
+                                                                    GameObject->RigidBody.InverseOrientation;
+                    GameObject->RigidBody.CoeffOfRestitution = 0.3f;
+                    GameObject->RigidBody.CoeffOfFriction = 0.1f;
+                }
             }
         }
 
@@ -1508,6 +1512,26 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     vec3 Forward = Normalize(vec3(CameraForward.x, 0.0f, CameraForward.z));
     vec3 CameraRight = Normalize(Cross(Forward, vec3(0.0f, 1.0f, 1.0f)));
     r32 Theta = Degrees(ATan2(Forward.z, Forward.x)) - 90.0f;
+    GameState->Hero->RigidBody.ForceAccumulated = vec3(0.0f, 0.0f, 0.0f);
+    if(Input->MoveForward.EndedDown)
+    {
+        GameState->Hero->RigidBody.ForceAccumulated += 10000.0f*dt*CameraForward;
+    }
+    if(Input->MoveBack.EndedDown)
+    {
+        
+        GameState->Hero->RigidBody.ForceAccumulated += 10000.0f*dt*-CameraForward;
+    }
+    if(Input->MoveRight.EndedDown)
+    {
+        
+        GameState->Hero->RigidBody.ForceAccumulated += 10000.0f*dt*CameraRight;
+    }
+    if(Input->MoveLeft.EndedDown)
+    {
+        
+        GameState->Hero->RigidBody.ForceAccumulated += 10000.0f*dt*-CameraRight;
+    }
 
     Camera->P = GameState->Hero->RigidBody.P + CameraOffsetFromHero;
     Camera->Dir = CameraForward;
@@ -1532,7 +1556,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             game_object *GameObject = GameState->GameObjects + GameObjectIndex;
             rigid_body *RigidBody = &GameObject->RigidBody;
         
-            RigidBody->ForceAccumulated = vec3(0.0f, 0.0f, 0.0f);
+            // RigidBody->ForceAccumulated = vec3(0.0f, 0.0f, 0.0f);
             vec3 ddP = RigidBody->ForceAccumulated * (1.0f / RigidBody->Mass);
             ddP += vec3(0.0f, -9.8f, 0.0f);
 
@@ -1540,8 +1564,9 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             RigidBody->dP *= (1.0f - dt*1.0f);
             RigidBody->P += dt*RigidBody->dP;
 
+            vec3 AngularAcceleration = RigidBody->GlobalInverseInertiaTensor*RigidBody->TorqueAccumulated;
             RigidBody->AngularMomentum += dt*RigidBody->TorqueAccumulated;
-            RigidBody->AngularMomentum *= (1.0f - dt*1.0f);
+            RigidBody->AngularMomentum *= (1.0f - 0.25f*dt*1.0f);
             RigidBody->AngularVelocity = RigidBody->GlobalInverseInertiaTensor*RigidBody->AngularMomentum;
             RigidBody->Orientation = Rotation3x3(dt*Degrees(Length(RigidBody->AngularVelocity)), 
                                                  RigidBody->AngularVelocity) *
@@ -1576,7 +1601,9 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     struct collision_data
     {
         game_object *A;
+		u32 AIndex;
         game_object *B;
+		u32 BIndex;
         collision_info Manifold;
     };
 
@@ -1599,6 +1626,8 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             {
                 Collisions[CollisionCount].A = GameObject;
                 Collisions[CollisionCount].B = TestGameObject;
+                Collisions[CollisionCount].AIndex = GameObjectIndex;
+				Collisions[CollisionCount].BIndex = TestObjectIndex;
                 CollisionCount++;
             }
         }
@@ -1619,7 +1648,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         if(Length(Manifold->PenetrationVector) > Slop)
         {
             r32 Percent = 0.2f;
-            vec3 PenetrationVector = Percent*Manifold->PenetrationVector;
+            vec3 PenetrationVector = Percent*Normalize(Manifold->PenetrationVector)*(Length(Manifold->PenetrationVector) - Slop);
             if(Collision->B->Type == GameObject_Wall)
             {
                 A->P += PenetrationVector;
@@ -1665,8 +1694,10 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         r32 CoeffOfFriction = Min(A->CoeffOfFriction, B->CoeffOfFriction);
 
         vec3 aP = Manifold->ContactP - A->P;
-        vec3 VelocityA = A->dP + Cross(A->AngularVelocity, aP);
+        vec3 VelocityWithoutTranslation = Cross(A->AngularVelocity, aP);
+        vec3 VelocityA = A->dP + VelocityWithoutTranslation;
         r32 OneOverMassA = 1.0f / A->Mass;
+        b32 ImpulseWasUsed = false;
 
         r32 ImpulseMagnitude = 0.0f;
         r32 ImpulseMagnitudeTangent1 = 0.0f;
@@ -1675,26 +1706,23 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         {
             if(Dot(N, VelocityA) < 0.0f)
             {
-                r32 PenetrationMultiplier = 1.0f + 1.0f*Length(Manifold->PenetrationVector);
+                ImpulseWasUsed = true;
 
                 r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(VelocityA, N);
-                r32 ImpulseDenom = (OneOverMassA + (1.0f / 600000.0f)) + Dot(N, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, N), aP)));
+                r32 ImpulseDenom = OneOverMassA + Dot(N, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, N), aP)));
                 ImpulseMagnitude = ImpulseNom / ImpulseDenom;
-                ImpulseMagnitude *= PenetrationMultiplier;
 
                 r32 ImpulseNomTangent1 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA, Tangent1);
-                r32 ImpulseDenomTangent1 = (OneOverMassA + (1.0f / 600000.0f)) + Dot(Tangent1, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent1), aP)));   
+                r32 ImpulseDenomTangent1 = OneOverMassA + Dot(Tangent1, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent1), aP)));   
                 ImpulseMagnitudeTangent1 = ImpulseNomTangent1 / ImpulseDenomTangent1;
-                ImpulseMagnitudeTangent1 *= PenetrationMultiplier;
                 if(Absolute(ImpulseMagnitudeTangent1) > CoeffOfFriction*ImpulseMagnitude)
                 {
                     ImpulseMagnitudeTangent1 = Sign(ImpulseMagnitudeTangent1)*CoeffOfFriction*ImpulseMagnitude;
                 }
 
                 r32 ImpulseNomTangent2 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA, Tangent2);
-                r32 ImpulseDenomTangent2 = (OneOverMassA + (1.0f / 600000.0f)) + Dot(Tangent2, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent2), aP)));   
+                r32 ImpulseDenomTangent2 = OneOverMassA + Dot(Tangent2, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent2), aP)));   
                 ImpulseMagnitudeTangent2 = ImpulseNomTangent2 / ImpulseDenomTangent2;
-                ImpulseMagnitudeTangent2 *= PenetrationMultiplier;
                 if(Absolute(ImpulseMagnitudeTangent2) > CoeffOfFriction*ImpulseMagnitude)
                 {
                     ImpulseMagnitudeTangent2 = Sign(ImpulseMagnitudeTangent2)*CoeffOfFriction*ImpulseMagnitude;
@@ -1707,23 +1735,22 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             vec3 VelocityB = B->dP + Cross(B->AngularVelocity, bP);
             r32 OneOverMassB = 1.0f / B->Mass;
 
-            if(Dot(N, VelocityA - VelocityB) < 0.0f)
+            vec3 RelativeVelocity = VelocityA - VelocityB;
+            if(Dot(N, RelativeVelocity) < 0.0f)
             {
-                r32 PenetrationMultiplier = 1.0f + 1.0f*Length(Manifold->PenetrationVector);
+                ImpulseWasUsed = true;
 
-                r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(VelocityA - VelocityB, N);
+                r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(RelativeVelocity, N);
                 r32 ImpulseDenom = (OneOverMassA + OneOverMassB)+
                                    Dot(N, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, N), aP))) + 
                                    Dot(N, (Cross(B->GlobalInverseInertiaTensor*Cross(bP, N), bP)));
                 ImpulseMagnitude = ImpulseNom / ImpulseDenom;
-                ImpulseMagnitude *= PenetrationMultiplier;
 
                 r32 ImpulseNomTangent1 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA - VelocityB, Tangent1);
                 r32 ImpulseDenomTangent1 = (OneOverMassA + OneOverMassB)+
                                            Dot(Tangent1, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent1), aP))) + 
                                            Dot(Tangent1, (Cross(B->GlobalInverseInertiaTensor*Cross(bP, Tangent1), bP)));
                 ImpulseMagnitudeTangent1 = ImpulseNomTangent1 / ImpulseDenomTangent1;
-                ImpulseMagnitudeTangent1 *= PenetrationMultiplier;
                 if(Absolute(ImpulseMagnitudeTangent1) > CoeffOfFriction*ImpulseMagnitude)
                 {
                     ImpulseMagnitudeTangent1 = Sign(ImpulseMagnitudeTangent1)*CoeffOfFriction*ImpulseMagnitude;
@@ -1734,7 +1761,6 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                                            Dot(Tangent2, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent2), aP))) + 
                                            Dot(Tangent2, (Cross(B->GlobalInverseInertiaTensor*Cross(bP, Tangent2), bP)));
                 ImpulseMagnitudeTangent2 = ImpulseNomTangent2 / ImpulseDenomTangent2;
-                ImpulseMagnitudeTangent2 *= PenetrationMultiplier;
                 if(Absolute(ImpulseMagnitudeTangent2) > CoeffOfFriction*ImpulseMagnitude)
                 {
                     ImpulseMagnitudeTangent2 = Sign(ImpulseMagnitudeTangent2)*CoeffOfFriction*ImpulseMagnitude;
@@ -1743,18 +1769,52 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                 B->dP += (-ImpulseMagnitude * OneOverMassB)*N + 
                          (-ImpulseMagnitudeTangent1 * OneOverMassB)*Tangent1 +
                          (-ImpulseMagnitudeTangent2 * OneOverMassB)*Tangent2;
-                B->AngularMomentum += Cross(bP, -ImpulseMagnitude*N) + 
+                B->AngularMomentum += Cross(bP, -ImpulseMagnitude*N) +
                                       Cross(bP, -ImpulseMagnitudeTangent1*Tangent1) +
                                       Cross(bP, -ImpulseMagnitudeTangent2*Tangent2);
+                B->AngularVelocity = B->GlobalInverseInertiaTensor*B->AngularMomentum;
             }
         }
         
         A->dP += (ImpulseMagnitude * OneOverMassA)*N + 
                  (ImpulseMagnitudeTangent1 * OneOverMassA)*Tangent1 + 
                  (ImpulseMagnitudeTangent2 * OneOverMassA)*Tangent2;
-        A->AngularMomentum += Cross(aP, ImpulseMagnitude*N) + 
+        A->AngularMomentum += Cross(aP, ImpulseMagnitude*N) +
                               Cross(aP, ImpulseMagnitudeTangent1*Tangent1) + 
                               Cross(aP, ImpulseMagnitudeTangent2*Tangent2);
+        A->AngularVelocity = A->GlobalInverseInertiaTensor*A->AngularMomentum;
+
+        // NOTE(georgy): Check normal relative velocity after impulse
+        if(B->Mass != 0.0f)
+        {
+            if(ImpulseWasUsed)
+            {
+                vec3 ATestAngularVelocity = A->GlobalInverseInertiaTensor*A->AngularMomentum;
+                vec3 ATestVelocityWithoutTranslation = Cross(ATestAngularVelocity, aP);
+                vec3 TestVelocityA = A->dP + ATestVelocityWithoutTranslation;
+
+                vec3 bP = Manifold->ContactP - B->P;
+                vec3 BTestAngularVelocity = B->GlobalInverseInertiaTensor*B->AngularMomentum;
+                vec3 BTestVelocityWithoutTranslation = Cross(BTestAngularVelocity, bP);
+                vec3 TestVelocityB = B->dP + BTestVelocityWithoutTranslation;
+
+                vec3 TestRelativeVelocity = TestVelocityA - TestVelocityB;
+                r32 NormalRelativeVelocity = Dot(N, TestRelativeVelocity);
+                Assert(NormalRelativeVelocity >= 0.0f);
+            }
+        }
+        else
+        {
+            if(ImpulseWasUsed)
+            {
+                vec3 ATestAngularVelocity = A->GlobalInverseInertiaTensor*A->AngularMomentum;
+                vec3 ATestVelocityWithoutTranslation = Cross(ATestAngularVelocity, aP);
+                vec3 TestVelocityA = A->dP + ATestVelocityWithoutTranslation;
+
+                r32 NormalRelativeVelocity = Dot(N, TestVelocityA);
+                Assert(NormalRelativeVelocity >= 0.0f);
+            }
+        }
     }
 
     for(u32 GameObjectIndex = 0;

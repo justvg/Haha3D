@@ -106,7 +106,7 @@ WinSetPixelFormat(HDC WindowDC)
             WGL_DEPTH_BITS_ARB, 24,
             WGL_STENCIL_BITS_ARB, 8,
             WGL_SAMPLE_BUFFERS_ARB, 1,
-            WGL_SAMPLES_ARB, 1,
+            WGL_SAMPLES_ARB, 4,
             WGL_FRAMEBUFFER_SRGB_CAPABLE_ARB, GL_TRUE,
             0
         };
