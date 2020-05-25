@@ -177,6 +177,16 @@ RenderCommands(render_command_buffer *RenderCommandBuffer)
                 glBindVertexArray(0);
             } break;
 
+            case RenderCommand_EnableDepthTest:
+            {
+                glEnable(GL_DEPTH_TEST);
+            } break;
+
+            case RenderCommand_DisableDepthTest:
+            {
+                glDisable(GL_DEPTH_TEST);
+            } break;
+
             case RenderCommand_PushShader:
             {
                 Assert(RenderCommandBuffer->ShadersStackTop < MAX_RENDER_COMMAND_BUFFER_SHADERS_IN_STACK);

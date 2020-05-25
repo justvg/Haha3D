@@ -34,539 +34,41 @@ Contains(vec3 *Vertices, u32 Count, vec3 Check)
     return(Result);
 }
 
-internal u32
-CalculateMinkowskiDiff(vec3 *Diff, u32 ACount, vec3 *AVertices, u32 BCount, vec3 *BVertices)
-{
-    u32 VertexCount = 0;
-
-    for(u32 AVertex = 0;
-        AVertex < ACount;
-        AVertex++)
-    {
-        for(u32 BVertex = 0;
-            BVertex < BCount;
-            BVertex++)
-        {
-            vec3 NewVertex = AVertices[AVertex] - BVertices[BVertex];
-            if(!Contains(Diff, VertexCount, NewVertex))
-            {
-                Diff[VertexCount++] = NewVertex;
-            }
-        }
-    }
-
-    return(VertexCount);
-}
-
-internal u32
-ConstructConvexHull(vec2 *CH, u32 Count, vec2 *Vertices)
-{
-    u32 UpperChainCount = 2;
-    vec2 UpperChain[32];
-    UpperChain[0] = Vertices[0];
-    UpperChain[1] = Vertices[1];
-    vec2 LastUpperChainEdge = UpperChain[1] - UpperChain[0];
-    for(u32 Index = 2;
-        Index < Count;
-        Index++)
-    {
-        vec2 Vertex = Vertices[Index];
-
-        while((UpperChainCount > 1) && 
-              (Cross2D(Vertex - UpperChain[UpperChainCount - 2], LastUpperChainEdge) < 0.0f))
-        {
-            // NOTE(georgy): Vertex lies to the left of the LastUpperChainEdge
-            UpperChainCount--;
-            if(UpperChainCount > 1)
-            {
-                LastUpperChainEdge = UpperChain[UpperChainCount - 1] - UpperChain[UpperChainCount - 2];
-            }
-        }
-
-        UpperChain[UpperChainCount++] = Vertex;
-        LastUpperChainEdge = UpperChain[UpperChainCount - 1] - UpperChain[UpperChainCount - 2];
-    }
-
-    u32 LowerChainCount = 2;
-    vec2 LowerChain[32];
-    LowerChain[0] = Vertices[0];
-    LowerChain[1] = Vertices[1];
-    vec2 LastLowerChainEdge = LowerChain[1] - LowerChain[0];
-    for(u32 Index = 2;
-        Index < Count;
-        Index++)
-    {
-        vec2 Vertex = Vertices[Index];
-
-        while((LowerChainCount > 1) && 
-              (Cross2D(Vertex - LowerChain[LowerChainCount - 2], LastLowerChainEdge) > 0.0f))
-        {
-            // NOTE(georgy): Vertex lies to the left of the LastLowerChainEdge
-            LowerChainCount--;
-            if(LowerChainCount > 1)
-            {
-                LastLowerChainEdge = LowerChain[LowerChainCount - 1] - LowerChain[LowerChainCount - 2];
-            }
-        }
-
-        LowerChain[LowerChainCount++] = Vertex;
-        LastLowerChainEdge = LowerChain[LowerChainCount - 1] - LowerChain[LowerChainCount - 2];
-    }
-
-    u32 CHCount = 0;
-    for(u32 Index = 0;
-        Index < LowerChainCount;
-        Index++)
-    {
-        CH[CHCount++] = LowerChain[Index];
-    }
-
-    Assert(UpperChainCount >= 2);
-    for(u32 Index = UpperChainCount - 2;
-        Index > 0;
-        Index--)
-    {
-        CH[CHCount++] = UpperChain[Index];
-    }
-
-    return(CHCount);
-}
-
-struct contact_configuration
-{
-    r32 Min, Max;
-    u32 Index[2];
-    char Type[2];
-};
-
-internal b32 
-NoIntersection(contact_configuration ConfigA, contact_configuration ConfigB, 
-               r32 Speed, r32 &tFirst, r32 &tLast, i32 &Side,
-               contact_configuration *FirstContactConfigA, contact_configuration *FirstContactConfigB)
-{
-    if(ConfigA.Max < ConfigB.Min)
-    {
-        // NOTE(georgy): Interval of A is initially on 'left' of interval B
-        
-        if(Speed <= 0.0f) { return(true); }
-
-        r32 t = (ConfigB.Min - ConfigA.Max) / Speed;
-        if(t > tFirst)
-        {
-            tFirst = t;
-            Side = -1;
-            *FirstContactConfigA = ConfigA;
-            *FirstContactConfigB = ConfigB;
-        }
-
-        t = (ConfigB.Max - ConfigA.Min) / Speed;
-        if(t < tLast)
-        {
-            tLast = t;
-        }
-    }
-    else if(ConfigB.Max < ConfigA.Min)
-    {
-        // NOTE(georgy): Interval of A is initially on 'right' of interval B
-
-        if(Speed >= 0) { return(true); }
-
-        r32 t = (ConfigB.Max - ConfigA.Min) / Speed;
-        if(t > tFirst)
-        {
-            tFirst = t;
-            Side = 1;
-            *FirstContactConfigA = ConfigA;
-            *FirstContactConfigB = ConfigB;
-        }
-
-        t = (ConfigB.Min - ConfigA.Max) / Speed;
-        if(t < tLast)
-        {
-            tLast = t;
-        }
-    }
-    else
-    {
-        // NOTE(georgy): Interval of A and interval of B initially overlap
-
-        if(Speed > 0)
-        {
-            r32 t = (ConfigB.Max - ConfigA.Min) / Speed;
-            if(t < tLast)
-            {
-                tLast = t;
-            }
-        }
-        else if(Speed < 0)
-        {
-            r32 t = (ConfigB.Min - ConfigA.Max) / Speed;
-            if(t < tLast)
-            {
-                tLast = t;
-            }
-        }
-    }
-
-    b32 NoIntersect = (tFirst > tLast);
-    return(NoIntersect);
-}
-
-// NOTE(georgy): This function exploits the fact that it projects the polygon on one of its edge normals
-internal void
-ComputeProjectionIntervalForNormal(vec2 *Vertices, u32 Count, u32 EdgeIndex, vec2 Normal, contact_configuration *Config)
-{
-    Config->Max = Dot(Normal, Vertices[EdgeIndex]);
-    Config->Index[1] = EdgeIndex;
-    Config->Type[1] = 'E'; 
-    Config->Type[0] = 'V'; 
- 
-    Config->Min = Config->Max;
-    for(u32 I = 0, VertexIndex = (EdgeIndex + 2) % Count;
-        I < (Count - 2);
-        I++, VertexIndex = (VertexIndex + 1) % Count)
-    {
-        r32 Value = Dot(Normal, Vertices[VertexIndex]);
-        if(Absolute(Value - Config->Min) <= Epsilon)
-        {
-            // NOTE(georgy): Found an edge parallel to initial projected edge
-            Config->Type[0] = 'E';
-            break;
-        }
-        else if(Value < Config->Min)
-        {
-            Config->Min = Value;
-            Config->Index[0] = VertexIndex;
-        }
-        else
-        {
-            // NOTE(georgy): When dot product becomes larger than the min., we are walking back towards initial edge
-            break;
-        }
-    }
-}
-
-internal void
-ComputeProjectionIntervalGeneral(vec2 *Vertices, vec2 *Edges, u32 Count, vec2 V, contact_configuration *Config)
-{
-    Config->Min = Config->Max = Dot(V, Vertices[0]);
-    Config->Index[0] = Config->Index[1] = 0;
-    Config->Type[0] = Config->Type[1] = 'V';
-
-    for(u32 Vertex = 1;
-        Vertex < Count;
-        Vertex++)
-    {
-        r32 Value = Dot(V, Vertices[Vertex]);
-        if(Value < Config->Min)
-        {
-            Config->Min = Value;
-            Config->Index[0] = Vertex;
-        }
-        else if(Value > Config->Max)
-        {
-            Config->Max = Value;
-            Config->Index[1] = Vertex;
-        }
-    }
-
-    for(u32 I = 0; I < 2; I++)
-    {
-        u32 FirstTestEdgeIndex = (Config->Index[I] == 0) ? (Count - 1) : (Config->Index[I] - 1);
-        u32 SecondTestEdgeIndex = Config->Index[I];
-        if(Dot(V, Edges[FirstTestEdgeIndex]) == 0.0f)
-        {
-            Config->Index[I] = FirstTestEdgeIndex;
-            Config->Type[I] = 'E';
-        }
-        else if(Dot(V, Edges[SecondTestEdgeIndex]) == 0.0f)
-        {
-            Config->Type[I] = 'E';
-        }
-    }
-}
-
-#if 0
 internal b32
-TestIntersection(game_object *A, vec2 DeltaP, game_object *B, r32 *t, vec2 &PointOfContact, vec2 &CollisionNormal,
-                 u32 MaxDepth = 100)
+VectorsAreEqual(vec3 A, vec3 B)
 {
-    b32 Result = false;
+    b32 XIsEqual = Absolute(A.x - B.x) <= Epsilon;
+    b32 YIsEqual = Absolute(A.y - B.y) <= Epsilon;
+    b32 ZIsEqual = Absolute(A.z - B.z) <= Epsilon;
 
-    if(MaxDepth > 0)
-    {
-        // NOTE(georgy): Process as if B is stationary, A is moving
-        r32 tFirst = 0.0f;
-        r32 tLast = FLT_MAX;
-
-        vec2 AAxisX = vec2(Cos(Radians(A->RigidBody.Orientation)), Sin(Radians(A->RigidBody.Orientation)));
-        vec2 AAxisY = Perp(AAxisX);
-        // TODO(georgy): This function works for any convex polygon!
-        // NOTE(georgy): CCW order
-        vec2 APolygonVertices[4] = 
-        {
-            vec2(A->RigidBody.P + 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY),
-            vec2(A->RigidBody.P - 0.5f*A->Width*AAxisX + 0.5f*A->Height*AAxisY),
-            vec2(A->RigidBody.P - 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY),
-            vec2(A->RigidBody.P + 0.5f*A->Width*AAxisX - 0.5f*A->Height*AAxisY),
-        };
-
-        vec2 APolygonEdges[4]
-        {
-            APolygonVertices[1] - APolygonVertices[0],
-            APolygonVertices[2] - APolygonVertices[1],
-            APolygonVertices[3] - APolygonVertices[2],
-            APolygonVertices[0] - APolygonVertices[3],
-        };
-
-        vec2 BAxisX = vec2(Cos(Radians(B->RigidBody.Orientation)), Sin(Radians(B->RigidBody.Orientation)));
-        vec2 BAxisY = Perp(BAxisX);
-        // TODO(georgy): This function works for any convex polygon!
-        // NOTE(georgy): CCW order
-        vec2 BPolygonVertices[4] = 
-        {
-            vec2(B->RigidBody.P + 0.5f*B->Width*BAxisX + 0.5f*B->Height*BAxisY),
-            vec2(B->RigidBody.P - 0.5f*B->Width*BAxisX + 0.5f*B->Height*BAxisY),
-            vec2(B->RigidBody.P - 0.5f*B->Width*BAxisX - 0.5f*B->Height*BAxisY),
-            vec2(B->RigidBody.P + 0.5f*B->Width*BAxisX - 0.5f*B->Height*BAxisY),
-        };
-
-        vec2 BPolygonEdges[4]
-        {
-            BPolygonVertices[1] - BPolygonVertices[0],
-            BPolygonVertices[2] - BPolygonVertices[1],
-            BPolygonVertices[3] - BPolygonVertices[2],
-            BPolygonVertices[0] - BPolygonVertices[3],
-        };
-
-        contact_configuration FirstContactConfigA = {};
-        contact_configuration FirstContactConfigB = {};
-        i32 Side = 0;
-
-        // NOTE(georgy): Test normals of A's edges for separation
-        for(u32 EdgeIndex = 0;
-            EdgeIndex < ArrayCount(APolygonEdges);
-            EdgeIndex++)
-        {
-            vec2 Edge = APolygonEdges[EdgeIndex];
-            vec2 Normal = Normalize(vec2(Edge.y, -Edge.x));
-            r32 Speed = Dot(DeltaP, Normal);
-
-            contact_configuration ConfigA, ConfigB;
-            ComputeProjectionIntervalForNormal(APolygonVertices, ArrayCount(APolygonVertices), EdgeIndex, Normal, &ConfigA);
-            ComputeProjectionIntervalGeneral(BPolygonVertices, BPolygonEdges, ArrayCount(BPolygonVertices), Normal, &ConfigB);
-
-            if(NoIntersection(ConfigA, ConfigB, Speed, tFirst, tLast, Side, &FirstContactConfigA, &FirstContactConfigB))
-            {
-                return(false);
-            }
-        }
-
-        // NOTE(georgy): Test normals of B's edges for separation
-        for(u32 EdgeIndex = 0;
-            EdgeIndex < ArrayCount(BPolygonEdges);
-            EdgeIndex++)
-        {
-            vec2 Edge = BPolygonEdges[EdgeIndex];
-            vec2 Normal = Normalize(vec2(Edge.y, -Edge.x));
-            r32 Speed = Dot(DeltaP, Normal);
-
-            contact_configuration ConfigA, ConfigB;
-            ComputeProjectionIntervalGeneral(APolygonVertices, APolygonEdges, ArrayCount(APolygonVertices), Normal, &ConfigA);
-            ComputeProjectionIntervalForNormal(BPolygonVertices, ArrayCount(BPolygonVertices), EdgeIndex, Normal, &ConfigB);
-
-            if(NoIntersection(ConfigA, ConfigB, Speed, tFirst, tLast, Side, &FirstContactConfigA, &FirstContactConfigB))
-            {
-                return(false);
-            }
-        }
-
-        Result = true;
-        *t = tFirst;
-
-        if(Side == 1)
-        {
-            // NOTE(georgy): A-min meets B-max
-
-            if(FirstContactConfigA.Type[0] == 'V')
-            {
-                // NOTE(georgy): vertex-vertex or vertex-edge intersection
-                PointOfContact = APolygonVertices[FirstContactConfigA.Index[0]] + tFirst*DeltaP;
-
-                if(FirstContactConfigB.Type[1] == 'E')
-                {
-                    vec2 BContactEdge = BPolygonEdges[FirstContactConfigB.Index[1]];
-                    CollisionNormal = Normalize(vec2(BContactEdge.y, -BContactEdge.x));
-                }
-                else
-                {
-                    u32 BContactEdgeIndex = (FirstContactConfigB.Index[1] == 0) ? ArrayCount(BPolygonEdges) - 1 : FirstContactConfigB.Index[1] - 1;
-                    vec2 BContactEdge = BPolygonEdges[BContactEdgeIndex];
-                    CollisionNormal = Normalize(vec2(BContactEdge.y, -BContactEdge.x));
-                }
-            }
-            else if(FirstContactConfigB.Type[1] == 'V')
-            {
-                // NOTE(georgy): edge-vertex intersection
-                PointOfContact = BPolygonVertices[FirstContactConfigB.Index[1]];
-
-                vec2 AContactEdge = APolygonEdges[FirstContactConfigA.Index[0]];
-                CollisionNormal = Normalize(Perp(AContactEdge));
-            }
-            else
-            {
-                // NOTE(georgy): edge-edge intersection
-                vec2 P = BPolygonVertices[FirstContactConfigB.Index[1]];
-                vec2 E = BPolygonEdges[FirstContactConfigB.Index[1]];
-                vec2 U0 = APolygonVertices[FirstContactConfigA.Index[0]];
-                vec2 U1 = APolygonVertices[(FirstContactConfigA.Index[0] + 1) % ArrayCount(APolygonVertices)];
-
-                r32 S0 = Dot(E, U1 - P) / LengthSq(E);
-                r32 S1 = Dot(E, U0 - P) / LengthSq(E);
-
-                // NOTE(georgy): Find interval intersection
-                r32 IntervalMinT = Max(0, S0);
-                r32 IntervalMaxT = Min(1, S1);
-                r32 Middle = 0.5f*(IntervalMinT + IntervalMaxT);
-
-                PointOfContact = P + Middle*E;
-
-                CollisionNormal = Normalize(vec2(E.y, -E.x));
-            }
-        }
-        else if(Side == -1)
-        {
-            // NOTE(georgy): A-max meets B-min
-
-            if(FirstContactConfigA.Type[1] == 'V')
-            {
-                // NOTE(georgy): vertex-vertex or vertex-edge intersection
-                PointOfContact = APolygonVertices[FirstContactConfigA.Index[1]] + tFirst*DeltaP; 
-
-                if(FirstContactConfigB.Type[0] == 'E')
-                {
-                    vec2 BContactEdge = BPolygonEdges[FirstContactConfigB.Index[0]];
-                    CollisionNormal = Normalize(vec2(BContactEdge.y, -BContactEdge.x));
-                }
-                else
-                {
-                    u32 BContactEdgeIndex = (FirstContactConfigB.Index[0] == 0) ? ArrayCount(BPolygonEdges) - 1 : FirstContactConfigB.Index[0] - 1;
-                    vec2 BContactEdge = BPolygonEdges[BContactEdgeIndex];
-                    CollisionNormal = Normalize(vec2(BContactEdge.y, -BContactEdge.x));
-                }
-            }
-            else if(FirstContactConfigB.Type[0] == 'V')
-            {
-                // NOTE(georgy): edge-vertex intersection
-                PointOfContact = BPolygonVertices[FirstContactConfigB.Index[0]];
-
-                vec2 AContactEdge = APolygonEdges[FirstContactConfigA.Index[1]];
-                CollisionNormal = Normalize(Perp(AContactEdge));
-            }
-            else
-            {
-                // NOTE(georgy): edge-edge intersection
-                vec2 P = APolygonVertices[FirstContactConfigA.Index[1]];
-                vec2 E = APolygonEdges[FirstContactConfigA.Index[1]];
-                vec2 U0 = BPolygonVertices[FirstContactConfigB.Index[0]];
-                vec2 U1 = BPolygonVertices[(FirstContactConfigB.Index[0] + 1) % ArrayCount(BPolygonVertices)];
-
-                r32 S0 = Dot(E, U1 - P) / LengthSq(E);
-                r32 S1 = Dot(E, U0 - P) / LengthSq(E);
-
-                // NOTE(georgy): Find interval intersection
-                r32 IntervalMinT = Max(0, S0);
-                r32 IntervalMaxT = Min(1, S1);
-                r32 Middle = 0.5f*(IntervalMinT + IntervalMaxT);
-
-                PointOfContact = P + Middle*E;
-
-                CollisionNormal = Normalize(vec2(E.y, -E.x));
-            }
-        }
-        else
-        {
-            vec2 MinkowskiDiff[32];
-            u32 MinkowskiDiffVertexCount = CalculateMinkowskiDiff(MinkowskiDiff,
-                                                                ArrayCount(BPolygonVertices), BPolygonVertices, 
-                                                                ArrayCount(APolygonVertices), APolygonVertices);
-
-            // NOTE(georgy): Sort by X. If Xs are equal, sort by Y
-            for(u32 Outer = 0;
-                Outer < MinkowskiDiffVertexCount; 
-                Outer++)
-            {
-                for(u32 Inner = 0; 
-                    Inner < (MinkowskiDiffVertexCount - 1); 
-                    Inner++)
-                {
-                    vec2 *A = &MinkowskiDiff[Inner];
-                    vec2 *B = &MinkowskiDiff[Inner + 1];
-                    b32 XIsEqual = (Absolute(A->x - B->x) <= Epsilon);
-                    if(XIsEqual)
-                    {
-                        if(A->y > B->y)
-                        {
-                            vec2 Temp = *A;
-                            *A = *B;
-                            *B = Temp;
-                        }
-                    }
-                    else if(A->x > B->x)
-                    {
-                        vec2 Temp = *A;
-                        *A = *B;
-                        *B = Temp;
-                    }
-                }
-            }
-
-            vec2 CH[32];
-            u32 CHCount = ConstructConvexHull(CH, MinkowskiDiffVertexCount, MinkowskiDiff);
-            r32 MinLength = FLT_MAX;
-            vec2 MinimalTranslationalDistance = {};
-            for(u32 I0 = 0, I1 = CHCount - 1;
-                I0 < CHCount;
-                I1 = I0, I0++)
-            {
-                vec2 Edge = CH[I0] - CH[I1];
-                vec2 EdgeInwardNormal = Perp(Edge);
-                vec2 PointOnEdge = CH[I1];
-                vec2 ClosestPointOnEdgeFromOrigin = -(Dot(EdgeInwardNormal, -PointOnEdge) / LengthSq(EdgeInwardNormal))*EdgeInwardNormal;
-                
-                r32 Len = Length(ClosestPointOnEdgeFromOrigin);
-                if(Len < MinLength)
-                {
-                    MinLength = Len;
-                    MinimalTranslationalDistance = ClosestPointOnEdgeFromOrigin;
-                }
-            }
-
-            A->RigidBody.P = A->RigidBody.P + 1.2f*MinimalTranslationalDistance;
-            Result = TestIntersection(A, DeltaP, B, t, PointOfContact, CollisionNormal, MaxDepth - 1);
-        }
-    }
-
+    b32 Result = XIsEqual && YIsEqual && ZIsEqual;
     return(Result);
 }
-#endif
 
 internal vec3
-Support(vec3 D, vec3 SphereP, r32 SphereRadius)
+Support(game_object *Obj, vec3 D)
 {
-    vec3 Result = SphereP + SphereRadius*Normalize(D);
+    vec3 Result;
+    // TODO(georgy): It is not the best idea to do all these computations
+    vec3 AxisX = vec3(Obj->RigidBody.Orientation.a11, Obj->RigidBody.Orientation.a21, Obj->RigidBody.Orientation.a31);
+    vec3 AxisY = vec3(Obj->RigidBody.Orientation.a12, Obj->RigidBody.Orientation.a22, Obj->RigidBody.Orientation.a32);
+    vec3 AxisZ = vec3(Obj->RigidBody.Orientation.a13, Obj->RigidBody.Orientation.a23, Obj->RigidBody.Orientation.a33);
 
-    return(Result);
-}
+    vec3 Points[8] = 
+    {
+        Obj->RigidBody.P + 0.5f*Obj->Width*AxisX + 0.5f*Obj->Height*AxisY + 0.5f*Obj->Depth*AxisZ,
+        Obj->RigidBody.P + 0.5f*Obj->Width*AxisX + 0.5f*Obj->Height*AxisY - 0.5f*Obj->Depth*AxisZ,
+        Obj->RigidBody.P - 0.5f*Obj->Width*AxisX + 0.5f*Obj->Height*AxisY - 0.5f*Obj->Depth*AxisZ,
+        Obj->RigidBody.P - 0.5f*Obj->Width*AxisX + 0.5f*Obj->Height*AxisY + 0.5f*Obj->Depth*AxisZ,
+        Obj->RigidBody.P - 0.5f*Obj->Width*AxisX - 0.5f*Obj->Height*AxisY + 0.5f*Obj->Depth*AxisZ,
+        Obj->RigidBody.P + 0.5f*Obj->Width*AxisX - 0.5f*Obj->Height*AxisY + 0.5f*Obj->Depth*AxisZ,
+        Obj->RigidBody.P + 0.5f*Obj->Width*AxisX - 0.5f*Obj->Height*AxisY - 0.5f*Obj->Depth*AxisZ,
+        Obj->RigidBody.P - 0.5f*Obj->Width*AxisX - 0.5f*Obj->Height*AxisY - 0.5f*Obj->Depth*AxisZ,
+    };
+    u32 Count = ArrayCount(Points);
 
-internal vec3 
-Support(vec3 D, u32 Count, vec3 *Points)
-{
-    Assert(Count > 0);
-
-    vec3 Result = Points[0];
+    Result = Points[0];
     r32 Max = Dot(D, Points[0]);
-
     for(u32 Point = 1;  
         Point < Count;
         Point++)
@@ -812,66 +314,13 @@ DoSimplex(u32 *SimplexCount, vec3 *Simplex, vec3 *Dir, vec3 *SimplexA, vec3 *Sim
     return(Result);
 }
 
+global_variable r32 PersistentThreshold = 0.1f;
+global_variable r32 PersistentThresholdSq = Square(PersistentThreshold);
 internal b32
-VectorsAreEqual(vec3 A, vec3 B)
+Intersect(collision_manifold *Manifold, game_object *ObjA, game_object *ObjB)
 {
-    b32 XIsEqual = Absolute(A.x - B.x) <= Epsilon;
-    b32 YIsEqual = Absolute(A.y - B.y) <= Epsilon;
-    b32 ZIsEqual = Absolute(A.z - B.z) <= Epsilon;
-
-    b32 Result = XIsEqual && YIsEqual && ZIsEqual;
-    return(Result);
-}
-
-struct collision_info
-{
-    vec3 ContactP;
-    vec3 Normal;
-    vec3 PenetrationVector;
-};
-
-internal b32
-Intersect(collision_info *CollisionInfo, game_object *ObjA, game_object *ObjB)
-{
-    vec3 AAxisX = vec3(ObjA->RigidBody.Orientation.a11, ObjA->RigidBody.Orientation.a21, ObjA->RigidBody.Orientation.a31);
-    vec3 AAxisY = vec3(ObjA->RigidBody.Orientation.a12, ObjA->RigidBody.Orientation.a22, ObjA->RigidBody.Orientation.a32);
-    vec3 AAxisZ = vec3(ObjA->RigidBody.Orientation.a13, ObjA->RigidBody.Orientation.a23, ObjA->RigidBody.Orientation.a33);
-
-    vec3 APolygonVertices[8] = 
-    {
-        ObjA->RigidBody.P + 0.5f*ObjA->Width*AAxisX + 0.5f*ObjA->Height*AAxisY + 0.5f*ObjA->Depth*AAxisZ,
-        ObjA->RigidBody.P + 0.5f*ObjA->Width*AAxisX + 0.5f*ObjA->Height*AAxisY - 0.5f*ObjA->Depth*AAxisZ,
-        ObjA->RigidBody.P - 0.5f*ObjA->Width*AAxisX + 0.5f*ObjA->Height*AAxisY - 0.5f*ObjA->Depth*AAxisZ,
-        ObjA->RigidBody.P - 0.5f*ObjA->Width*AAxisX + 0.5f*ObjA->Height*AAxisY + 0.5f*ObjA->Depth*AAxisZ,
-        ObjA->RigidBody.P - 0.5f*ObjA->Width*AAxisX - 0.5f*ObjA->Height*AAxisY + 0.5f*ObjA->Depth*AAxisZ,
-        ObjA->RigidBody.P + 0.5f*ObjA->Width*AAxisX - 0.5f*ObjA->Height*AAxisY + 0.5f*ObjA->Depth*AAxisZ,
-        ObjA->RigidBody.P + 0.5f*ObjA->Width*AAxisX - 0.5f*ObjA->Height*AAxisY - 0.5f*ObjA->Depth*AAxisZ,
-        ObjA->RigidBody.P - 0.5f*ObjA->Width*AAxisX - 0.5f*ObjA->Height*AAxisY - 0.5f*ObjA->Depth*AAxisZ,
-    };
-
-#if 1
-    vec3 BAxisX = vec3(ObjB->RigidBody.Orientation.a11, ObjB->RigidBody.Orientation.a21, ObjB->RigidBody.Orientation.a31);
-    vec3 BAxisY = vec3(ObjB->RigidBody.Orientation.a12, ObjB->RigidBody.Orientation.a22, ObjB->RigidBody.Orientation.a32);
-    vec3 BAxisZ = vec3(ObjB->RigidBody.Orientation.a13, ObjB->RigidBody.Orientation.a23, ObjB->RigidBody.Orientation.a33);
-
-    vec3 BPolygonVertices[8] = 
-    {
-        ObjB->RigidBody.P + 0.5f*ObjB->Width*BAxisX + 0.5f*ObjB->Height*BAxisY + 0.5f*ObjB->Depth*BAxisZ,
-        ObjB->RigidBody.P + 0.5f*ObjB->Width*BAxisX + 0.5f*ObjB->Height*BAxisY - 0.5f*ObjB->Depth*BAxisZ,
-        ObjB->RigidBody.P - 0.5f*ObjB->Width*BAxisX + 0.5f*ObjB->Height*BAxisY - 0.5f*ObjB->Depth*BAxisZ,
-        ObjB->RigidBody.P - 0.5f*ObjB->Width*BAxisX + 0.5f*ObjB->Height*BAxisY + 0.5f*ObjB->Depth*BAxisZ,
-        ObjB->RigidBody.P - 0.5f*ObjB->Width*BAxisX - 0.5f*ObjB->Height*BAxisY + 0.5f*ObjB->Depth*BAxisZ,
-        ObjB->RigidBody.P + 0.5f*ObjB->Width*BAxisX - 0.5f*ObjB->Height*BAxisY + 0.5f*ObjB->Depth*BAxisZ,
-        ObjB->RigidBody.P + 0.5f*ObjB->Width*BAxisX - 0.5f*ObjB->Height*BAxisY - 0.5f*ObjB->Depth*BAxisZ,
-        ObjB->RigidBody.P - 0.5f*ObjB->Width*BAxisX - 0.5f*ObjB->Height*BAxisY - 0.5f*ObjB->Depth*BAxisZ,
-    };
-#else
-    vec3 SphereP = ObjB->RigidBody.P;
-    r32 SphereRadius = 1.0f;
-#endif
-
-    vec3 Sa = Support(vec3(1.0f, 0.0f, 0.0f), ArrayCount(BPolygonVertices), BPolygonVertices);
-    vec3 Sb = Support(-vec3(1.0f, 0.0f, 0.0f), ArrayCount(APolygonVertices), APolygonVertices);
+    vec3 Sa = Support(ObjB, vec3(1.0f, 0.0f, 0.0f));
+    vec3 Sb = Support(ObjA, -vec3(1.0f, 0.0f, 0.0f));
     vec3 S = Sa - Sb;
     u32 SimplexCount = 1;
     vec3 Simplex[4] = {S, vec3(0, 0, 0), vec3(0, 0, 0), vec3(0, 0, 0)};
@@ -879,14 +328,12 @@ Intersect(collision_info *CollisionInfo, game_object *ObjA, game_object *ObjB)
     vec3 SimplexB[4] = {Sb, vec3(0, 0, 0), vec3(0, 0, 0), vec3(0, 0, 0)};
     vec3 Dir = -S;
 
-    Assert(VectorsAreEqual(Simplex[0], SimplexA[0] - SimplexB[0]));
-
     // NOTE(georgy): GJK pass
     b32 Result;
     while(true)
     {
-        vec3 Aa = Support(Dir, ArrayCount(BPolygonVertices), BPolygonVertices);
-        vec3 Ab = Support(-Dir, ArrayCount(APolygonVertices), APolygonVertices);
+        vec3 Aa = Support(ObjB, Dir);
+        vec3 Ab = Support(ObjA, -Dir);
         vec3 A = Aa - Ab;
         r32 DirDotA = Dot(Dir, A);
         // if(DirDotA < 0.0f)
@@ -943,9 +390,8 @@ Intersect(collision_info *CollisionInfo, game_object *ObjA, game_object *ObjB)
 
                 for(vec3 SearchDir : SearchDirections)
                 {
-                    // Simplex[1] = Support(SearchDir, MDCount, MD);
-                    SimplexA[1] = Support(SearchDir, ArrayCount(BPolygonVertices), BPolygonVertices);
-                    SimplexB[1] = Support(-SearchDir, ArrayCount(APolygonVertices), APolygonVertices);
+                    SimplexA[1] = Support(ObjB, SearchDir);
+                    SimplexB[1] = Support(ObjA, -SearchDir);
                     Simplex[1] = SimplexA[1] - SimplexB[1];
 
                     if(LengthSq(Simplex[1] - Simplex[0]) >= ToleranceSq)
@@ -999,8 +445,8 @@ Intersect(collision_info *CollisionInfo, game_object *ObjA, game_object *ObjB)
                     Search < 6;
                     Search++)
                 {
-                    SimplexA[2] = Support(SearchDir, ArrayCount(BPolygonVertices), BPolygonVertices);
-                    SimplexB[2] = Support(-SearchDir, ArrayCount(APolygonVertices), APolygonVertices);
+                    SimplexA[2] = Support(ObjB, SearchDir);
+                    SimplexB[2] = Support(ObjA, -SearchDir);
                     Simplex[2] = SimplexA[2] - SimplexB[2];
 
                     if(Dot(Simplex[2], SearchDir) >= ToleranceSq)
@@ -1019,15 +465,15 @@ Intersect(collision_info *CollisionInfo, game_object *ObjA, game_object *ObjB)
             case 3:
             {
                 vec3 SearchDir = Cross(Simplex[1] - Simplex[0], Simplex[2] - Simplex[0]);
-                SimplexA[3] = Support(SearchDir, ArrayCount(BPolygonVertices), BPolygonVertices);
-                SimplexB[3] = Support(-SearchDir, ArrayCount(APolygonVertices), APolygonVertices);
+                SimplexA[3] = Support(ObjB, SearchDir);
+                SimplexB[3] = Support(ObjA, -SearchDir);
                 Simplex[3] = SimplexA[3] - SimplexB[3];
                 
                 if(Dot(Simplex[3], SearchDir) < ToleranceSq)
                 {
                     SearchDir = -SearchDir;
-                    SimplexA[3] = Support(SearchDir, ArrayCount(BPolygonVertices), BPolygonVertices);
-                    SimplexB[3] = Support(-SearchDir, ArrayCount(APolygonVertices), APolygonVertices);
+                    SimplexA[3] = Support(ObjB, SearchDir);
+                    SimplexB[3] = Support(ObjA, -SearchDir);
                     Simplex[3] = SimplexA[3] - SimplexB[3];
                 }
 
@@ -1116,8 +562,8 @@ Intersect(collision_info *CollisionInfo, game_object *ObjA, game_object *ObjB)
                 }
             }
 
-            vec3 aP = Support(ClosestNormal, ArrayCount(BPolygonVertices), BPolygonVertices);
-            vec3 bP = Support(-ClosestNormal, ArrayCount(APolygonVertices), APolygonVertices);
+            vec3 aP = Support(ObjB, ClosestNormal);
+            vec3 bP = Support(ObjA, -ClosestNormal);
             vec3 P = aP - bP;
             r32 D = Dot(P, ClosestNormal);
             if(Absolute(D - ClosestDist) < Tolerance)
@@ -1135,21 +581,128 @@ Intersect(collision_info *CollisionInfo, game_object *ObjA, game_object *ObjB)
                 r32 v = ProjOCA / (ProjOAB + ProjOCA + ProjOBC);
                 r32 w = 1.0f - u - v;
 
-                vec3 TestProjO = u*Triangle.A + v*Triangle.B + w*Triangle.C;
-
                 Assert(VectorsAreEqual(Triangle.A, Triangle.aA - Triangle.bA));
                 Assert(VectorsAreEqual(Triangle.B, Triangle.aB - Triangle.bB));
                 Assert(VectorsAreEqual(Triangle.C, Triangle.aC - Triangle.bC));
 
-                // NOTE(georgy): 'A' object here is one that is A here "Support(A) - Support(B)""
-                vec3 ContactPForA = u*Triangle.aA + v*Triangle.aB + w*Triangle.aC;
-                vec3 ContactPForB = u*Triangle.bA + v*Triangle.bB + w*Triangle.bC;
+                // NOTE(georgy): 'A' object here is one that is A here "Support(A) - Support(B)"
+                contact_point NewContact;
+                NewContact.Persistent = false;
+                NewContact.GlobalA = u*Triangle.bA + v*Triangle.bB + w*Triangle.bC;
+                NewContact.LocalA = ObjA->RigidBody.InverseOrientation*(NewContact.GlobalA - ObjA->RigidBody.P);
+                NewContact.GlobalB = u*Triangle.aA + v*Triangle.aB + w*Triangle.aC;
+                NewContact.LocalB = ObjB->RigidBody.InverseOrientation*(NewContact.GlobalB - ObjB->RigidBody.P);
+                NewContact.Normal = ClosestNormal;
+                NewContact.Penetration = D;
+                NewContact.AccumulatedImpulse = 0.0f;
+                NewContact.AccumulatedImpulseTangent1 = 0.0f;
+                NewContact.AccumulatedImpulseTangent2 = 0.0f;
 
-                PenetrationVector = D*ClosestNormal;
+                b32 FarEnough = true;
+                for(u32 ContactIndex = 0;
+                    ContactIndex < Manifold->ContactCount;
+                    ContactIndex++)
+                {
+                    contact_point *Contact = Manifold->Contacts + ContactIndex;
+                    vec3 rA = NewContact.GlobalA - Contact->GlobalA;
+                    vec3 rB = NewContact.GlobalB - Contact->GlobalB;
 
-                CollisionInfo->ContactP = ContactPForA;
-                CollisionInfo->Normal = ClosestNormal;
-                CollisionInfo->PenetrationVector = PenetrationVector;
+                    b32 rATooClose = (LengthSq(rA) <= PersistentThresholdSq);
+                    b32 rBTooClose = (LengthSq(rB) <= PersistentThresholdSq);
+
+                    if(rATooClose || rBTooClose)
+                    {
+                        Contact->GlobalA = NewContact.GlobalA;
+                        Contact->LocalA = NewContact.LocalA;
+                        Contact->GlobalB = NewContact.GlobalB;
+                        Contact->LocalB = NewContact.LocalB;
+                        Contact->Normal = NewContact.Normal;
+                        Contact->Penetration = NewContact.Penetration;
+
+                        FarEnough = false;
+                        break;
+                    }
+                }
+                if(FarEnough)
+                {
+                    Manifold->Contacts[Manifold->ContactCount++] = NewContact;
+                    
+                    if(Manifold->ContactCount == ArrayCount(Manifold->Contacts))
+                    {
+                        contact_point Deepest;
+                        r32 Penetration = -FLT_MAX;
+                        for(u32 ContactIndex = 0;
+                            ContactIndex < Manifold->ContactCount;
+                            ContactIndex++)
+                        {
+                            contact_point *Contact = Manifold->Contacts + ContactIndex;
+
+                            if(Contact->Penetration > Penetration)
+                            {
+                                Penetration = Contact->Penetration;
+                                Deepest = *Contact;
+                            }
+                        }
+
+                        contact_point Furthest1;
+                        r32 DistanceSq1 = -FLT_MAX;
+                        for(u32 ContactIndex = 0;
+                            ContactIndex < Manifold->ContactCount;
+                            ContactIndex++)
+                        {
+                            contact_point *Contact = Manifold->Contacts + ContactIndex;
+                            r32 Dist = LengthSq(Contact->GlobalA - Deepest.GlobalA);
+
+                            if(Dist > DistanceSq1)
+                            {
+                                DistanceSq1 = Dist;
+                                Furthest1 = *Contact;
+                            }
+                        }
+
+                        contact_point Furthest2;
+                        r32 Distance2 = -FLT_MAX;
+                        for(u32 ContactIndex = 0;
+                            ContactIndex < Manifold->ContactCount;
+                            ContactIndex++)
+                        {
+                            contact_point *Contact = Manifold->Contacts + ContactIndex;
+                            r32 Dist = DistanceFromLineSegment(Contact->GlobalA, Deepest.GlobalA, Furthest1.GlobalA);
+
+                            if(Dist > Distance2)
+                            {
+                                Distance2 = Dist;
+                                Furthest2 = *Contact;
+                            }
+                        }
+
+                        contact_point Furthest3;
+                        r32 Distance3 = -FLT_MAX;
+                        for(u32 ContactIndex = 0;
+                            ContactIndex < Manifold->ContactCount;
+                            ContactIndex++)
+                        {
+                            contact_point *Contact = Manifold->Contacts + ContactIndex;
+                            r32 Dist = DistanceFromTriangle(Contact->GlobalA, Deepest.GlobalA, Furthest1.GlobalA, Furthest2.GlobalA);
+
+                            if(Dist > Distance3)
+                            {
+                                Distance3 = Dist;
+                                Furthest3 = *Contact;
+                            }
+                        }
+
+                        Manifold->ContactCount = 0;
+                        Manifold->Contacts[Manifold->ContactCount++] = Deepest;
+                        Manifold->Contacts[Manifold->ContactCount++] = Furthest1;
+                        Manifold->Contacts[Manifold->ContactCount++] = Furthest2;
+                        b32 FourthPointInTriangle = PointInTriangle(Furthest3.GlobalA, Deepest.GlobalA, Furthest1.GlobalA, Furthest2.GlobalA);
+                        if(!FourthPointInTriangle)
+                        {
+                            Manifold->Contacts[Manifold->ContactCount++] = Furthest3;
+                        }
+                    }
+                }
 
                 break;
             }
@@ -1225,8 +778,6 @@ Intersect(collision_info *CollisionInfo, game_object *ObjA, game_object *ObjB)
                 }
             }
         }
-
-        // ObjA->RigidBody.P += PenetrationVector;
     }
 
     return(Result);
@@ -1235,15 +786,15 @@ Intersect(collision_info *CollisionInfo, game_object *ObjA, game_object *ObjB)
 internal model
 InitSphereMesh(void)
 {
-    u32 ParallelCount = 10;
-    u32 MeridianCount = 10;
-    r32 Radius = 1.0f;
+    u32 ParallelCount = 20;
+    u32 MeridianCount = 20;
+    r32 Radius = 0.5f;
 
     u32 VerticesCount = 0;
-    vec3 Vertices[2048];
+    vec3 Vertices[4096];
 
     u32 IndicesCount = 0;
-    u32 Indices[2048];
+    u32 Indices[4096];
 
     Vertices[VerticesCount++] = Radius*vec3(0.0f, 1.0f, 0.0f);
     for(u32 Parallel = 0;
@@ -1322,6 +873,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     if(!GameState->IsInitialized)
     {
         Platform.CompileShader(&GameState->Shader.Handle, "shaders/shader.glsl");
+        Platform.CompileShader(&GameState->DebugShader.Handle, "shaders/DebugShader.glsl");
         
         r32 CubeVertices[] = {
             // back face
@@ -1392,7 +944,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         GameState->Hero->Width = 1.0f;
         GameState->Hero->Height = 1.0f;
         GameState->Hero->Depth = 1.0f;
-        GameState->Hero->RigidBody.P = vec3(1.5f, 9.0f, 0.0f);
+        GameState->Hero->RigidBody.P = vec3(4.0f, 2.0f, 4.0f);
         GameState->Hero->RigidBody.Mass = 6.0f;
         r32 OneOverTwelve = 1.0f / 12.0f;
         r32 Mass = GameState->Hero->RigidBody.Mass;
@@ -1410,15 +962,16 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         GameState->Hero->RigidBody.GlobalInverseInertiaTensor = GameState->Hero->RigidBody.Orientation *  
                                                                 GameState->Hero->RigidBody.InverseInertiaTensor * 
                                                                 GameState->Hero->RigidBody.InverseOrientation;
-        GameState->Hero->RigidBody.CoeffOfRestitution = 0.3f;
-        GameState->Hero->RigidBody.CoeffOfFriction = 0.1f;
+        GameState->Hero->RigidBody.CoeffOfRestitution = 0.5f;
+        GameState->Hero->RigidBody.CoeffOfFriction = 0.0f;
 
+#if 1
         for(i32 ZOffset = -1;
             ZOffset <= 1;
             ZOffset++)
         {
             for(i32 YOffset = 0;
-                YOffset <= 2;
+                YOffset <= 10;
                 YOffset++)
             {
                 for(i32 XOffset = -1;
@@ -1432,7 +985,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                     GameObject->Width = 1.0f;
                     GameObject->Height = 1.0f;
                     GameObject->Depth = 1.0f;
-                    GameObject->RigidBody.P = vec3(1.0f + 1.5f * XOffset, 2.0f*(YOffset) + 0.001f, 1.2f*ZOffset);
+                    GameObject->RigidBody.P = vec3(1.0f + 1.5f * XOffset, 4.0f*(YOffset) + 1.0f, 1.2f*ZOffset);
                     GameObject->RigidBody.Mass = 6.0f;
                     Mass = GameObject->RigidBody.Mass;
                     Width = GameObject->Width;
@@ -1443,21 +996,58 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                                                     OneOverTwelve*Mass*(Square(Width) + Square(Height)));
                     GameObject->RigidBody.InertiaTensor = Scaling3x3(InertiaTensorMainDiagonal);
                     GameObject->RigidBody.InverseInertiaTensor = Inverse3x3(GameObject->RigidBody.InertiaTensor);
-                    if(ZOffset == 0)
-                        GameObject->RigidBody.Orientation = Rotation3x3(45.0f, vec3(1.0f, 0.3f, 0.0f));
+                    if(YOffset == 0)
+                    {
+                        GameObject->RigidBody.Orientation = Rotation3x3(10.0f, vec3(1.0f, 0.3f, 0.6f));
+                    }
                     else
-                        GameObject->RigidBody.Orientation = Rotation3x3(-45.0f, vec3(1.0f, 0.0f, 4.0f));
+                    {
+                        GameObject->RigidBody.Orientation = Rotation3x3(32.0f, vec3(1.0f, 0.3f, 0.0f));
+                    }
 
                     // GameObject->RigidBody.Orientation = Identity3x3();
                     GameObject->RigidBody.InverseOrientation = Transpose3x3(GameObject->RigidBody.Orientation);
                     GameObject->RigidBody.GlobalInverseInertiaTensor = GameObject->RigidBody.Orientation *  
                                                                     GameObject->RigidBody.InverseInertiaTensor * 
                                                                     GameObject->RigidBody.InverseOrientation;
-                    GameObject->RigidBody.CoeffOfRestitution = 0.3f;
-                    GameObject->RigidBody.CoeffOfFriction = 0.1f;
+                    GameObject->RigidBody.CoeffOfRestitution = 0.5f;
+                    GameObject->RigidBody.CoeffOfFriction = 0.125f;
                 }
             }
         }
+#else
+        for(i32 YOffset = 0;
+            YOffset <= 5;
+            YOffset++)
+        {
+            game_object *GameObject = &GameState->GameObjects[GameState->GameObjectCount++];
+
+            GameObject->Type = GameObject_Cube;
+            GameObject->Model = &GameState->Cube;
+            GameObject->Width = 1.0f;
+            GameObject->Height = 1.0f;
+            GameObject->Depth = 1.0f;
+            GameObject->RigidBody.P = vec3(0.0f, 0.0001f + 1.0f*(YOffset), 0.0f);
+            GameObject->RigidBody.Mass = 6.0f;
+            Mass = GameObject->RigidBody.Mass;
+            Width = GameObject->Width;
+            Height = GameObject->Height;
+            Depth = GameObject->Depth;
+            InertiaTensorMainDiagonal = vec3(OneOverTwelve*Mass*(Square(Height) + Square(Depth)), 
+                                            OneOverTwelve*Mass*(Square(Width) + Square(Depth)),
+                                            OneOverTwelve*Mass*(Square(Width) + Square(Height)));
+            GameObject->RigidBody.InertiaTensor = Scaling3x3(InertiaTensorMainDiagonal);
+            GameObject->RigidBody.InverseInertiaTensor = Inverse3x3(GameObject->RigidBody.InertiaTensor);
+
+            GameObject->RigidBody.Orientation = Identity3x3();
+            GameObject->RigidBody.InverseOrientation = Transpose3x3(GameObject->RigidBody.Orientation);
+            GameObject->RigidBody.GlobalInverseInertiaTensor = GameObject->RigidBody.Orientation *  
+                                                            GameObject->RigidBody.InverseInertiaTensor * 
+                                                            GameObject->RigidBody.InverseOrientation;
+            GameObject->RigidBody.CoeffOfRestitution = 0.5f;
+            GameObject->RigidBody.CoeffOfFriction = 0.125f;
+        }
+#endif
 
         game_object *GameObject = &GameState->GameObjects[GameState->GameObjectCount++];
         GameObject->Type = GameObject_Wall;
@@ -1467,22 +1057,10 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         GameObject->Depth = 1000.0f;
         GameObject->RigidBody.P = vec3(0.0f, -5.5f, 0.0f);
         GameObject->RigidBody.Mass = 0.0f;
-        Mass = GameObject->RigidBody.Mass;
-        Width = GameObject->Width;
-        Height = GameObject->Height;
-        Depth = GameObject->Depth;
-        InertiaTensorMainDiagonal = vec3(OneOverTwelve*Mass*(Square(Height) + Square(Depth)), 
-                                         OneOverTwelve*Mass*(Square(Width) + Square(Depth)),
-                                         OneOverTwelve*Mass*(Square(Width) + Square(Height)));
-        GameObject->RigidBody.InertiaTensor = Scaling3x3(InertiaTensorMainDiagonal);
-        GameObject->RigidBody.InverseInertiaTensor = Inverse3x3(GameObject->RigidBody.InertiaTensor);
         GameObject->RigidBody.Orientation = Identity3x3();
         GameObject->RigidBody.InverseOrientation = Transpose3x3(GameObject->RigidBody.Orientation);
-        GameObject->RigidBody.GlobalInverseInertiaTensor = GameObject->RigidBody.Orientation *  
-                                                           GameObject->RigidBody.InverseInertiaTensor * 
-                                                           GameObject->RigidBody.InverseOrientation;
-        GameObject->RigidBody.CoeffOfRestitution = 0.3f;
-        GameObject->RigidBody.CoeffOfFriction = 0.0f;   
+        GameObject->RigidBody.CoeffOfRestitution = 0.5f;
+        GameObject->RigidBody.CoeffOfFriction = 0.125f;   
 
         GameState->IsInitialized = true;
     }
@@ -1500,7 +1078,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     r32 PitchRadians = Radians(Camera->CameraPitch);
     r32 HeadRadians = Radians(Camera->CameraHead);
 
-    r32 CameraDistanceFromHero = 20.0f;
+    r32 CameraDistanceFromHero = 10.0f;
     r32 FloorDistanceFromHero = CameraDistanceFromHero * Cos(-PitchRadians);
     
     r32 XOffsetFromHero = FloorDistanceFromHero * Sin(HeadRadians);
@@ -1515,12 +1093,12 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     GameState->Hero->RigidBody.ForceAccumulated = vec3(0.0f, 0.0f, 0.0f);
     if(Input->MoveForward.EndedDown)
     {
-        GameState->Hero->RigidBody.ForceAccumulated += 10000.0f*dt*CameraForward;
+        GameState->Hero->RigidBody.ForceAccumulated += 10000.0f*dt*Forward;
     }
     if(Input->MoveBack.EndedDown)
     {
         
-        GameState->Hero->RigidBody.ForceAccumulated += 10000.0f*dt*-CameraForward;
+        GameState->Hero->RigidBody.ForceAccumulated += 10000.0f*dt*-Forward;
     }
     if(Input->MoveRight.EndedDown)
     {
@@ -1533,13 +1111,19 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         GameState->Hero->RigidBody.ForceAccumulated += 10000.0f*dt*-CameraRight;
     }
 
-    Camera->P = GameState->Hero->RigidBody.P + CameraOffsetFromHero;
-    Camera->Dir = CameraForward;
+    // Camera->P = GameState->Hero->RigidBody.P + CameraOffsetFromHero;
+    // Camera->Dir = CameraForward;
+    Camera->P = vec3(7.0f, 14.0f, 14.0f);
+    Camera->Dir = -Normalize(Camera->P);
 
     mat4 Projection = Perspective(45.0f, (r32)WindowWidth/(r32)WindowHeight, 0.1f, 50.0f);
     mat4 View = Camera->GetRotationMatrix();
 
     Clear(RenderCommandBuffer, vec3(1.0f, 0.0f, 0.0f));
+
+    PushShader(RenderCommandBuffer, GameState->DebugShader);
+    PushMat4(RenderCommandBuffer, "Projection", &Projection);
+    PushMat4(RenderCommandBuffer, "View", &View);
 
     PushShader(RenderCommandBuffer, GameState->Shader);
     PushMat4(RenderCommandBuffer, "Projection", &Projection);
@@ -1559,15 +1143,347 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             // RigidBody->ForceAccumulated = vec3(0.0f, 0.0f, 0.0f);
             vec3 ddP = RigidBody->ForceAccumulated * (1.0f / RigidBody->Mass);
             ddP += vec3(0.0f, -9.8f, 0.0f);
-
             RigidBody->dP += dt*ddP;
-            RigidBody->dP *= (1.0f - dt*1.0f);
-            RigidBody->P += dt*RigidBody->dP;
 
-            vec3 AngularAcceleration = RigidBody->GlobalInverseInertiaTensor*RigidBody->TorqueAccumulated;
             RigidBody->AngularMomentum += dt*RigidBody->TorqueAccumulated;
-            RigidBody->AngularMomentum *= (1.0f - 0.25f*dt*1.0f);
             RigidBody->AngularVelocity = RigidBody->GlobalInverseInertiaTensor*RigidBody->AngularMomentum;
+        }
+    }
+
+    for(u32 CollisionIndex = 0;
+        CollisionIndex < GameState->CollisionCount;
+        CollisionIndex++)
+    {
+        collision_data *Collision = GameState->Collisions + CollisionIndex;
+
+        for(u32 ContactIndex = 0;
+            ContactIndex < Collision->Manifold.ContactCount;
+            )
+        {
+            contact_point *Contact = Collision->Manifold.Contacts + ContactIndex;
+
+            vec3 NewGlobalA = Collision->A->RigidBody.P + Collision->A->RigidBody.Orientation*Contact->LocalA;
+            vec3 NewGlobalB = Collision->B->RigidBody.P + Collision->B->RigidBody.Orientation*Contact->LocalB;
+            Contact->GlobalA = NewGlobalA;
+            Contact->GlobalB = NewGlobalB;
+            
+            vec3 rAB = NewGlobalB - NewGlobalA;
+            if(Dot(rAB, Contact->Normal) <= -PersistentThreshold)
+            {
+                Collision->Manifold.Contacts[ContactIndex] = Collision->Manifold.Contacts[--Collision->Manifold.ContactCount];
+            }
+            else
+            {
+                vec3 ProjectedP = NewGlobalA + Contact->Normal*Dot(rAB, Contact->Normal);
+                float DistSq = LengthSq(NewGlobalB - ProjectedP);
+                if(DistSq > PersistentThresholdSq)
+                {
+                    Collision->Manifold.Contacts[ContactIndex] = Collision->Manifold.Contacts[--Collision->Manifold.ContactCount];
+                }
+                else
+                {
+                    ContactIndex++;
+                }
+            }
+        }
+    }
+
+    for(u32 GameObjectIndex = 0;
+        GameObjectIndex < GameState->GameObjectCount - 1;
+        GameObjectIndex++)
+    {
+        game_object *GameObject = GameState->GameObjects + GameObjectIndex;
+
+        for(u32 TestObjectIndex = GameObjectIndex + 1;
+            TestObjectIndex < GameState->GameObjectCount;
+            TestObjectIndex++)
+        {
+            game_object *TestGameObject = GameState->GameObjects + TestObjectIndex;
+
+            collision_data *FoundCollision = 0;
+            for(u32 CollisionIndex = 0;
+                CollisionIndex < GameState->CollisionCount;
+                CollisionIndex++)
+            {
+                collision_data *Collision = GameState->Collisions + CollisionIndex;
+
+                if((Collision->A == GameObject) && (Collision->B == TestGameObject))
+                {   
+                    FoundCollision = Collision;
+                    break;
+                }
+            }
+            if(!FoundCollision)
+            {
+                FoundCollision = GameState->Collisions + GameState->CollisionCount;
+                FoundCollision->A = GameObject;
+                FoundCollision->B = TestGameObject;
+                GameState->CollisionCount++;
+            }
+
+            if(!Intersect(&FoundCollision->Manifold, GameObject, TestGameObject))
+            {
+                FoundCollision->Manifold = {};
+            }
+        }
+    }
+
+    for(u32 CollisionIndex = 0;
+        CollisionIndex < GameState->CollisionCount;
+        CollisionIndex++)
+    {
+        collision_data *Collision = GameState->Collisions + CollisionIndex;
+
+        rigid_body *A = &Collision->A->RigidBody;
+        rigid_body *B = &Collision->B->RigidBody;
+
+        for(u32 ContactIndex = 0;
+            ContactIndex < Collision->Manifold.ContactCount;
+            ContactIndex++)
+        {
+            contact_point *Contact = Collision->Manifold.Contacts + ContactIndex;
+            if(Contact->Persistent)
+            {
+                r32 ImpulseMagnitude = Contact->AccumulatedImpulse;
+                r32 ImpulseTangent1 = Contact->AccumulatedImpulseTangent1;
+                r32 ImpulseTangent2 = Contact->AccumulatedImpulseTangent2;
+
+                vec3 N = Contact->Normal;
+                r32 AbsX = Absolute(N.x);
+                r32 AbsY = Absolute(N.y);
+                r32 AbsZ = Absolute(N.z);
+                
+                vec3 Axis = vec3(0.0f, 0.0f, 0.0f);
+                if(AbsX < AbsY)
+                {
+                    if(AbsX < AbsZ)
+                    {
+                        Axis.x = 1.0f;
+                    }
+                    else
+                    {
+                        Axis.z = 1.0f;
+                    }
+                }
+                else if(AbsY < AbsZ)
+                {
+                    Axis.y = 1.0f;
+                }
+                else
+                {
+                    Axis.z = 1.0f;
+                }
+                vec3 Tangent1 = Normalize(Cross(N, Axis));
+                vec3 Tangent2 = Normalize(Cross(N, Tangent1));
+
+                vec3 aP = A->Orientation*Contact->LocalA;
+                r32 OneOverMassA = 1.0f / A->Mass;
+                A->dP += (ImpulseMagnitude * OneOverMassA)*N +
+                         (ImpulseTangent1 * OneOverMassA)*Tangent1 +
+                         (ImpulseTangent2 * OneOverMassA)*Tangent2;
+                A->AngularMomentum += Cross(aP, ImpulseMagnitude*N) +
+                                      Cross(aP, ImpulseTangent1*Tangent1) + 
+                                      Cross(aP, ImpulseTangent2*Tangent2);
+                A->AngularVelocity = A->GlobalInverseInertiaTensor*A->AngularMomentum;
+
+                if(B->Mass != 0.0f)
+                {
+                    vec3 bP = B->Orientation*Contact->LocalB;
+                    r32 OneOverMassB = 1.0f / B->Mass;
+                    B->dP += (-ImpulseMagnitude * OneOverMassB)*N + 
+                             (-ImpulseTangent1 * OneOverMassB)*Tangent1 +
+                             (-ImpulseTangent2 * OneOverMassB)*Tangent2;;
+                    B->AngularMomentum += Cross(bP, -ImpulseMagnitude*N) +
+                                          Cross(bP, -ImpulseTangent1*Tangent1) + 
+                                          Cross(bP, -ImpulseTangent2*Tangent2);
+                    B->AngularVelocity = B->GlobalInverseInertiaTensor*B->AngularMomentum;
+                }
+            }
+        }
+    }
+
+    for(u32 Iter = 0;
+        Iter < 20;
+        Iter++)
+    {
+        for(u32 CollisionIndex = 0;
+            CollisionIndex < GameState->CollisionCount;
+            CollisionIndex++)
+        {
+            collision_data *Collision = GameState->Collisions + CollisionIndex;
+
+            collision_manifold *Manifold = &Collision->Manifold;
+
+            rigid_body *A = &Collision->A->RigidBody;
+            rigid_body *B = &Collision->B->RigidBody;
+            
+            r32 CoeffOfRestitution = Min(A->CoeffOfRestitution, B->CoeffOfRestitution);
+            r32 CoeffOfFriction = SquareRoot(A->CoeffOfFriction*B->CoeffOfFriction);
+
+            for(u32 ContactIndex = 0;
+                ContactIndex < Collision->Manifold.ContactCount;
+                ContactIndex++)
+            {
+                contact_point *Contact = Collision->Manifold.Contacts + ContactIndex;
+                vec3 N = Contact->Normal;
+
+                r32 Slop = 0.01f;
+                r32 BiasFactor = 0.2f;
+                r32 BiasVelocity = (BiasFactor / dt)*Max(Contact->Penetration - Slop, 0.0f);
+
+                r32 AbsX = Absolute(N.x);
+                r32 AbsY = Absolute(N.y);
+                r32 AbsZ = Absolute(N.z);
+                
+                vec3 Axis = vec3(0.0f, 0.0f, 0.0f);
+                if(AbsX < AbsY)
+                {
+                    if(AbsX < AbsZ)
+                    {
+                        Axis.x = 1.0f;
+                    }
+                    else
+                    {
+                        Axis.z = 1.0f;
+                    }
+                }
+                else if(AbsY < AbsZ)
+                {
+                    Axis.y = 1.0f;
+                }
+                else
+                {
+                    Axis.z = 1.0f;
+                }
+
+                vec3 Tangent1 = Normalize(Cross(N, Axis));
+                vec3 Tangent2 = Normalize(Cross(N, Tangent1));
+
+                vec3 aP = Collision->A->RigidBody.Orientation*Contact->LocalA;
+                vec3 VelocityA = A->dP + Cross(A->AngularVelocity, aP);
+                r32 OneOverMassA = 1.0f / A->Mass;
+
+                r32 ImpulseMagnitude = 0.0f;
+                if(B->Mass == 0.0f)
+                {
+                    r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(VelocityA, N) + BiasVelocity;
+                    r32 ImpulseDenom = OneOverMassA + Dot(N, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, N), aP)));
+                    ImpulseMagnitude = ImpulseNom / ImpulseDenom;
+                    
+                    r32 Temp = Contact->AccumulatedImpulse;
+                    Contact->AccumulatedImpulse = Max(Contact->AccumulatedImpulse + ImpulseMagnitude, 0.0f);
+                    ImpulseMagnitude = Contact->AccumulatedImpulse - Temp;
+                }
+                else
+                {
+                    vec3 bP = Collision->B->RigidBody.Orientation*Contact->LocalB;
+                    vec3 VelocityB = B->dP + Cross(B->AngularVelocity, bP);
+                    r32 OneOverMassB = 1.0f / B->Mass;
+
+                    vec3 RelativeVelocity = VelocityA - VelocityB;
+                    r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(RelativeVelocity, N) + BiasVelocity;
+                    r32 ImpulseDenom = (OneOverMassA + OneOverMassB)+
+                                    Dot(N, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, N), aP))) + 
+                                    Dot(N, (Cross(B->GlobalInverseInertiaTensor*Cross(bP, N), bP)));
+                    ImpulseMagnitude = ImpulseNom / ImpulseDenom;
+
+                    r32 Temp = Contact->AccumulatedImpulse;
+                    Contact->AccumulatedImpulse = Max(Contact->AccumulatedImpulse + ImpulseMagnitude, 0.0f);
+                    ImpulseMagnitude = Contact->AccumulatedImpulse - Temp;
+
+                    B->dP += (-ImpulseMagnitude * OneOverMassB)*N;
+                    B->AngularMomentum += Cross(bP, -ImpulseMagnitude*N);
+                    B->AngularVelocity = B->GlobalInverseInertiaTensor*B->AngularMomentum;
+                }
+                
+                A->dP += (ImpulseMagnitude * OneOverMassA)*N;
+                A->AngularMomentum += Cross(aP, ImpulseMagnitude*N);
+                A->AngularVelocity = A->GlobalInverseInertiaTensor*A->AngularMomentum;
+
+                r32 ImpulseTangent1 = 0.0f;
+                r32 ImpulseTangent2 = 0.0f;
+                VelocityA = A->dP + Cross(A->AngularVelocity, aP);
+                if(B->Mass == 0.0f)
+                {
+                    r32 ImpulseNomTangent1 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA, Tangent1);
+                    r32 ImpulseDenomTangent1 = OneOverMassA + Dot(Tangent1, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent1), aP)));   
+                    ImpulseTangent1 = ImpulseNomTangent1 / ImpulseDenomTangent1;
+
+                    r32 Temp = Contact->AccumulatedImpulseTangent1;
+                    Contact->AccumulatedImpulseTangent1 = Clamp(Contact->AccumulatedImpulseTangent1 + ImpulseTangent1,
+                                                                -CoeffOfFriction*Contact->AccumulatedImpulse,
+                                                                CoeffOfFriction*Contact->AccumulatedImpulse);
+                    ImpulseTangent1 = Contact->AccumulatedImpulseTangent1 - Temp;
+
+                    r32 ImpulseNomTangent2 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA, Tangent2);
+                    r32 ImpulseDenomTangent2 = OneOverMassA + Dot(Tangent2, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent2), aP)));   
+                    ImpulseTangent2 = ImpulseNomTangent2 / ImpulseDenomTangent2;
+
+                    Temp = Contact->AccumulatedImpulseTangent2;
+                    Contact->AccumulatedImpulseTangent2 = Clamp(Contact->AccumulatedImpulseTangent2 + ImpulseTangent2,
+                                                                -CoeffOfFriction*Contact->AccumulatedImpulse,
+                                                                CoeffOfFriction*Contact->AccumulatedImpulse);
+                    ImpulseTangent2 = Contact->AccumulatedImpulseTangent2 - Temp;
+                }
+                else
+                {
+                    vec3 bP = Collision->B->RigidBody.Orientation*Contact->LocalB;
+                    vec3 VelocityB = B->dP + Cross(B->AngularVelocity, bP);
+                    r32 OneOverMassB = 1.0f / B->Mass;
+
+                    vec3 RelativeVelocity = VelocityA - VelocityB;
+
+                    r32 ImpulseNomTangent1 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA - VelocityB, Tangent1);
+                    r32 ImpulseDenomTangent1 = (OneOverMassA + OneOverMassB)+
+                                                Dot(Tangent1, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent1), aP))) + 
+                                                Dot(Tangent1, (Cross(B->GlobalInverseInertiaTensor*Cross(bP, Tangent1), bP)));
+                    ImpulseTangent1 = ImpulseNomTangent1 / ImpulseDenomTangent1;
+
+                    r32 Temp = Contact->AccumulatedImpulseTangent1;
+                    Contact->AccumulatedImpulseTangent1 = Clamp(Contact->AccumulatedImpulseTangent1 + ImpulseTangent1,
+                                                                -CoeffOfFriction*Contact->AccumulatedImpulse,
+                                                                CoeffOfFriction*Contact->AccumulatedImpulse);
+                    ImpulseTangent1 = Contact->AccumulatedImpulseTangent1 - Temp;
+
+                    r32 ImpulseNomTangent2 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA - VelocityB, Tangent2);
+                    r32 ImpulseDenomTangent2 = (OneOverMassA + OneOverMassB)+
+                                                Dot(Tangent2, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent2), aP))) + 
+                                                Dot(Tangent2, (Cross(B->GlobalInverseInertiaTensor*Cross(bP, Tangent2), bP)));   
+                    ImpulseTangent2 = ImpulseNomTangent2 / ImpulseDenomTangent2;
+
+                    Temp = Contact->AccumulatedImpulseTangent2;
+                    Contact->AccumulatedImpulseTangent2 = Clamp(Contact->AccumulatedImpulseTangent2 + ImpulseTangent2,
+                                                                -CoeffOfFriction*Contact->AccumulatedImpulse,
+                                                                CoeffOfFriction*Contact->AccumulatedImpulse);
+                    ImpulseTangent2 = Contact->AccumulatedImpulseTangent2 - Temp;
+
+                    B->dP += (-ImpulseTangent1 * OneOverMassB)*Tangent1 +
+                             (-ImpulseTangent2 * OneOverMassB)*Tangent2;
+                    B->AngularMomentum += Cross(bP, -ImpulseTangent1*Tangent1) +
+                                          Cross(bP, -ImpulseTangent2*Tangent2);
+                    B->AngularVelocity = B->GlobalInverseInertiaTensor*B->AngularMomentum;
+                }
+                
+                A->dP += (ImpulseTangent1 * OneOverMassA)*Tangent1 + 
+                         (ImpulseTangent2 * OneOverMassA)*Tangent2;
+                         
+                A->AngularMomentum += Cross(aP, ImpulseTangent1*Tangent1) +
+                                      Cross(aP, ImpulseTangent2*Tangent2);
+                A->AngularVelocity = A->GlobalInverseInertiaTensor*A->AngularMomentum;
+            }
+        }
+    }
+    
+    for(u32 GameObjectIndex = 0;
+        GameObjectIndex < GameState->GameObjectCount;
+        GameObjectIndex++)
+    {
+        if(GameObjectIndex != (GameState->GameObjectCount-1))
+        {
+            game_object *GameObject = GameState->GameObjects + GameObjectIndex;
+            rigid_body *RigidBody = &GameObject->RigidBody;
+            
+            RigidBody->P += dt*RigidBody->dP;
             RigidBody->Orientation = Rotation3x3(dt*Degrees(Length(RigidBody->AngularVelocity)), 
                                                  RigidBody->AngularVelocity) *
                                      RigidBody->Orientation;
@@ -1598,235 +1514,12 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         }
     }
 
-    struct collision_data
-    {
-        game_object *A;
-		u32 AIndex;
-        game_object *B;
-		u32 BIndex;
-        collision_info Manifold;
-    };
-
-    u32 CollisionCount = 0;
-    collision_data Collisions[64];
-
-    for(u32 GameObjectIndex = 0;
-        GameObjectIndex < GameState->GameObjectCount - 1;
-        GameObjectIndex++)
-    {
-        game_object *GameObject = GameState->GameObjects + GameObjectIndex;
-
-        for(u32 TestObjectIndex = GameObjectIndex + 1;
-            TestObjectIndex < GameState->GameObjectCount;
-            TestObjectIndex++)
-        {
-            game_object *TestGameObject = GameState->GameObjects + TestObjectIndex;
-
-            if(Intersect(&Collisions[CollisionCount].Manifold, GameObject, TestGameObject))
-            {
-                Collisions[CollisionCount].A = GameObject;
-                Collisions[CollisionCount].B = TestGameObject;
-                Collisions[CollisionCount].AIndex = GameObjectIndex;
-				Collisions[CollisionCount].BIndex = TestObjectIndex;
-                CollisionCount++;
-            }
-        }
-    }
-
-    for(u32 CollisionIndex = 0;
-        CollisionIndex < CollisionCount;
-        CollisionIndex++)
-    {
-        collision_data *Collision = Collisions + CollisionIndex;
-        collision_info *Manifold = &Collision->Manifold;
-
-        rigid_body *A = &Collision->A->RigidBody;
-        rigid_body *B = &Collision->B->RigidBody;
-        
-        // NOTE(georgy): Linear projection
-        r32 Slop = 0.01f;
-        if(Length(Manifold->PenetrationVector) > Slop)
-        {
-            r32 Percent = 0.2f;
-            vec3 PenetrationVector = Percent*Normalize(Manifold->PenetrationVector)*(Length(Manifold->PenetrationVector) - Slop);
-            if(Collision->B->Type == GameObject_Wall)
-            {
-                A->P += PenetrationVector;
-            }
-            else
-            {
-                PenetrationVector *= (1.0f / (A->Mass + B->Mass));
-                A->P += PenetrationVector * B->Mass;
-                B->P -= PenetrationVector * A->Mass;
-            }
-        }
-
-        vec3 N = Manifold->Normal;
-        r32 AbsX = Absolute(N.x);
-        r32 AbsY = Absolute(N.y);
-        r32 AbsZ = Absolute(N.z);
-        
-        vec3 Axis = vec3(0.0f, 0.0f, 0.0f);
-        if(AbsX < AbsY)
-        {
-            if(AbsX < AbsZ)
-            {
-                Axis.x = 1.0f;
-            }
-            else
-            {
-                Axis.z = 1.0f;
-            }
-        }
-        else if(AbsY < AbsZ)
-        {
-            Axis.y = 1.0f;
-        }
-        else
-        {
-            Axis.z = 1.0f;
-        }
-
-        vec3 Tangent1 = Normalize(Cross(N, Axis));
-        vec3 Tangent2 = Normalize(Cross(N, Tangent1));
-
-        r32 CoeffOfRestitution = Min(A->CoeffOfRestitution, B->CoeffOfRestitution);
-        r32 CoeffOfFriction = Min(A->CoeffOfFriction, B->CoeffOfFriction);
-
-        vec3 aP = Manifold->ContactP - A->P;
-        vec3 VelocityWithoutTranslation = Cross(A->AngularVelocity, aP);
-        vec3 VelocityA = A->dP + VelocityWithoutTranslation;
-        r32 OneOverMassA = 1.0f / A->Mass;
-        b32 ImpulseWasUsed = false;
-
-        r32 ImpulseMagnitude = 0.0f;
-        r32 ImpulseMagnitudeTangent1 = 0.0f;
-        r32 ImpulseMagnitudeTangent2 = 0.0f;
-        if(B->Mass == 0.0f)
-        {
-            if(Dot(N, VelocityA) < 0.0f)
-            {
-                ImpulseWasUsed = true;
-
-                r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(VelocityA, N);
-                r32 ImpulseDenom = OneOverMassA + Dot(N, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, N), aP)));
-                ImpulseMagnitude = ImpulseNom / ImpulseDenom;
-
-                r32 ImpulseNomTangent1 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA, Tangent1);
-                r32 ImpulseDenomTangent1 = OneOverMassA + Dot(Tangent1, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent1), aP)));   
-                ImpulseMagnitudeTangent1 = ImpulseNomTangent1 / ImpulseDenomTangent1;
-                if(Absolute(ImpulseMagnitudeTangent1) > CoeffOfFriction*ImpulseMagnitude)
-                {
-                    ImpulseMagnitudeTangent1 = Sign(ImpulseMagnitudeTangent1)*CoeffOfFriction*ImpulseMagnitude;
-                }
-
-                r32 ImpulseNomTangent2 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA, Tangent2);
-                r32 ImpulseDenomTangent2 = OneOverMassA + Dot(Tangent2, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent2), aP)));   
-                ImpulseMagnitudeTangent2 = ImpulseNomTangent2 / ImpulseDenomTangent2;
-                if(Absolute(ImpulseMagnitudeTangent2) > CoeffOfFriction*ImpulseMagnitude)
-                {
-                    ImpulseMagnitudeTangent2 = Sign(ImpulseMagnitudeTangent2)*CoeffOfFriction*ImpulseMagnitude;
-                }
-            }
-        }
-        else
-        {
-            vec3 bP = Manifold->ContactP - B->P;
-            vec3 VelocityB = B->dP + Cross(B->AngularVelocity, bP);
-            r32 OneOverMassB = 1.0f / B->Mass;
-
-            vec3 RelativeVelocity = VelocityA - VelocityB;
-            if(Dot(N, RelativeVelocity) < 0.0f)
-            {
-                ImpulseWasUsed = true;
-
-                r32 ImpulseNom = -(1.0f + CoeffOfRestitution)*Dot(RelativeVelocity, N);
-                r32 ImpulseDenom = (OneOverMassA + OneOverMassB)+
-                                   Dot(N, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, N), aP))) + 
-                                   Dot(N, (Cross(B->GlobalInverseInertiaTensor*Cross(bP, N), bP)));
-                ImpulseMagnitude = ImpulseNom / ImpulseDenom;
-
-                r32 ImpulseNomTangent1 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA - VelocityB, Tangent1);
-                r32 ImpulseDenomTangent1 = (OneOverMassA + OneOverMassB)+
-                                           Dot(Tangent1, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent1), aP))) + 
-                                           Dot(Tangent1, (Cross(B->GlobalInverseInertiaTensor*Cross(bP, Tangent1), bP)));
-                ImpulseMagnitudeTangent1 = ImpulseNomTangent1 / ImpulseDenomTangent1;
-                if(Absolute(ImpulseMagnitudeTangent1) > CoeffOfFriction*ImpulseMagnitude)
-                {
-                    ImpulseMagnitudeTangent1 = Sign(ImpulseMagnitudeTangent1)*CoeffOfFriction*ImpulseMagnitude;
-                }
-
-                r32 ImpulseNomTangent2 = -(1.0f + CoeffOfRestitution)*Dot(VelocityA - VelocityB, Tangent2);
-                r32 ImpulseDenomTangent2 = (OneOverMassA + OneOverMassB)+
-                                           Dot(Tangent2, (Cross(A->GlobalInverseInertiaTensor*Cross(aP, Tangent2), aP))) + 
-                                           Dot(Tangent2, (Cross(B->GlobalInverseInertiaTensor*Cross(bP, Tangent2), bP)));
-                ImpulseMagnitudeTangent2 = ImpulseNomTangent2 / ImpulseDenomTangent2;
-                if(Absolute(ImpulseMagnitudeTangent2) > CoeffOfFriction*ImpulseMagnitude)
-                {
-                    ImpulseMagnitudeTangent2 = Sign(ImpulseMagnitudeTangent2)*CoeffOfFriction*ImpulseMagnitude;
-                }
-
-                B->dP += (-ImpulseMagnitude * OneOverMassB)*N + 
-                         (-ImpulseMagnitudeTangent1 * OneOverMassB)*Tangent1 +
-                         (-ImpulseMagnitudeTangent2 * OneOverMassB)*Tangent2;
-                B->AngularMomentum += Cross(bP, -ImpulseMagnitude*N) +
-                                      Cross(bP, -ImpulseMagnitudeTangent1*Tangent1) +
-                                      Cross(bP, -ImpulseMagnitudeTangent2*Tangent2);
-                B->AngularVelocity = B->GlobalInverseInertiaTensor*B->AngularMomentum;
-            }
-        }
-        
-        A->dP += (ImpulseMagnitude * OneOverMassA)*N + 
-                 (ImpulseMagnitudeTangent1 * OneOverMassA)*Tangent1 + 
-                 (ImpulseMagnitudeTangent2 * OneOverMassA)*Tangent2;
-        A->AngularMomentum += Cross(aP, ImpulseMagnitude*N) +
-                              Cross(aP, ImpulseMagnitudeTangent1*Tangent1) + 
-                              Cross(aP, ImpulseMagnitudeTangent2*Tangent2);
-        A->AngularVelocity = A->GlobalInverseInertiaTensor*A->AngularMomentum;
-
-        // NOTE(georgy): Check normal relative velocity after impulse
-        if(B->Mass != 0.0f)
-        {
-            if(ImpulseWasUsed)
-            {
-                vec3 ATestAngularVelocity = A->GlobalInverseInertiaTensor*A->AngularMomentum;
-                vec3 ATestVelocityWithoutTranslation = Cross(ATestAngularVelocity, aP);
-                vec3 TestVelocityA = A->dP + ATestVelocityWithoutTranslation;
-
-                vec3 bP = Manifold->ContactP - B->P;
-                vec3 BTestAngularVelocity = B->GlobalInverseInertiaTensor*B->AngularMomentum;
-                vec3 BTestVelocityWithoutTranslation = Cross(BTestAngularVelocity, bP);
-                vec3 TestVelocityB = B->dP + BTestVelocityWithoutTranslation;
-
-                vec3 TestRelativeVelocity = TestVelocityA - TestVelocityB;
-                r32 NormalRelativeVelocity = Dot(N, TestRelativeVelocity);
-                Assert(NormalRelativeVelocity >= 0.0f);
-            }
-        }
-        else
-        {
-            if(ImpulseWasUsed)
-            {
-                vec3 ATestAngularVelocity = A->GlobalInverseInertiaTensor*A->AngularMomentum;
-                vec3 ATestVelocityWithoutTranslation = Cross(ATestAngularVelocity, aP);
-                vec3 TestVelocityA = A->dP + ATestVelocityWithoutTranslation;
-
-                r32 NormalRelativeVelocity = Dot(N, TestVelocityA);
-                Assert(NormalRelativeVelocity >= 0.0f);
-            }
-        }
-    }
-
     for(u32 GameObjectIndex = 0;
         GameObjectIndex < GameState->GameObjectCount;
         GameObjectIndex++)
     {
         game_object *GameObject = GameState->GameObjects + GameObjectIndex;
 
-        mat4 Model = Translation(GameObject->RigidBody.P) * 
-                     Mat4(GameObject->RigidBody.Orientation) * 
-                     Scaling(vec3(GameObject->Width, GameObject->Height, GameObject->Depth));
-        PushMat4(RenderCommandBuffer, "Model", &Model);
         if(GameObjectIndex == (GameState->GameObjectCount - 1))
         {
             PushVec3(RenderCommandBuffer, "Color", vec3(1.0f, 1.0f, 0.0f));
@@ -1835,6 +1528,38 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         {
             PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 0.0f, 1.0f));
         }
+
+        mat4 Model = Translation(GameObject->RigidBody.P) * 
+                        Mat4(GameObject->RigidBody.Orientation) * 
+                        Scaling(vec3(GameObject->Width, GameObject->Height, GameObject->Depth));
+        PushMat4(RenderCommandBuffer, "Model", &Model);
         DrawModel(RenderCommandBuffer, GameObject->Model);
     }
+
+    PushShader(RenderCommandBuffer, GameState->DebugShader);
+    DisableDepthTest(RenderCommandBuffer);
+    for(u32 CollisionIndex = 0;
+        CollisionIndex < GameState->CollisionCount;
+        CollisionIndex++)
+    {
+        collision_data *Collision = GameState->Collisions + CollisionIndex;
+
+        for(u32 ContactIndex = 0;
+            ContactIndex < Collision->Manifold.ContactCount;
+            ContactIndex++)
+        {
+            contact_point *Contact = Collision->Manifold.Contacts + ContactIndex;
+
+            mat4 Model = Translation(Contact->GlobalA) * Scaling(0.1f);
+            PushMat4(RenderCommandBuffer, "Model", &Model);
+            PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 1.0f, 0.0f));
+            DrawModelEBO(RenderCommandBuffer, &GameState->Sphere);
+
+            // Model = Translation(Contact->GlobalB) * Scaling(0.1f);
+            // PushMat4(RenderCommandBuffer, "Model", &Model);
+            // PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 1.0f, 1.0f));
+            // DrawModelEBO(RenderCommandBuffer, &GameState->Sphere);
+        }
+    }
+    EnableDepthTest(RenderCommandBuffer);
 }

@@ -72,6 +72,18 @@ PopShader(render_command_buffer *RenderCommandBuffer)
 }
 
 inline void
+EnableDepthTest(render_command_buffer *RenderCommandBuffer)
+{
+    PushCommand(RenderCommandBuffer, RenderCommand_EnableDepthTest);
+}
+
+inline void
+DisableDepthTest(render_command_buffer *RenderCommandBuffer)
+{
+    PushCommand(RenderCommandBuffer, RenderCommand_DisableDepthTest);
+}
+
+inline void
 PushVec3(render_command_buffer *RenderCommandBuffer, char *Name, vec3 Vector)
 {
     render_command_buffer_entry *Entry = PushCommand(RenderCommandBuffer, RenderCommand_PushVec3);

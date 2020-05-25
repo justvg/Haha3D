@@ -24,6 +24,23 @@ Lerp(r32 A, r32 B, r32 t)
     return(Result);
 }
 
+inline r32
+Clamp(r32 Value, r32 Min, r32 Max)
+{
+    if(Min > Max)
+    {
+        r32 Temp = Min;
+        Min = Max;
+        Max = Temp;
+    }
+    Assert(Min <= Max);
+
+    if(Value < Min) Value = Min;
+    else if(Value > Max) Value = Max;
+
+    return(Value);
+}
+
 // 
 // NOTE(georgy): vec2
 // 
@@ -355,6 +372,94 @@ ClosestPointInSegment(vec3 P, vec3 A, vec3 B)
     r32 t = Dot(P - A, (B - A) * (1.0f / Length(B - A))) / Length(B - A);
     vec3 Result = A + t*(B - A);
     
+    return(Result);
+}
+
+internal r32
+DistanceFromLineSegment(vec3 P, vec3 A, vec3 B)
+{
+    vec3 ClosestP = ClosestPointInSegment(P, A, B);
+    r32 Result = Length(P - ClosestP);
+
+    return(Result);
+}
+
+internal vec3
+ClosestPointInTriangle(vec3 P, vec3 A, vec3 B, vec3 C)
+{
+    vec3 Result;
+
+    vec3 AB = B - A;
+    vec3 AC = C - A;
+    vec3 BC = C - B;
+
+    // NOTE(georgy): Parametric position s for projection P' of P on AB,
+    // P' = A + s*AB, s = sNom / (sNom + sDenom)
+    r32 sNom = Dot(P - A, AB);
+    r32 sDenom = Dot(P - B, A - B); 
+
+    // NOTE(georgy): Parametric position t for projection P' of P on AC,
+    // P' = A + t*AC, s = tNom / (tNom + tDenom)
+    r32 tNom = Dot(P - A, AC);
+    r32 tDenom = Dot(P - C, A - C);
+
+    if((sNom <= 0.0f) && (tNom <= 0.0f))
+    {
+        Result = A;
+        return(Result);
+    }
+
+    // NOTE(georgy): Parametric position u for projection P' of P on BC,
+    // P' = B + u*BC, u = uNom / (uNom + uDenom)
+    r32 uNom = Dot(P - B, BC);
+    r32 uDenom = Dot(P - C, B - C);
+
+    if((sDenom <= 0.0f) && (uNom <= 0.0f))
+    {
+        Result = B;
+        return(Result);
+    }
+
+    if((tDenom <= 0.0f) && (uDenom <= 0.0f))
+    {
+        Result = C;
+        return(Result);
+    }
+
+    vec3 N = Cross(B - A, C - A);
+    r32 RAB = Dot(N, Cross(A - P, B - P));
+    if((RAB <= 0.0f) && (sNom >= 0.0f) && (sDenom >= 0.0f))
+    {
+        Result = A + AB*(sNom / (sNom + sDenom));
+        return(Result);
+    }
+
+    r32 RBC = Dot(N, Cross(B - P, C - P));
+    if((RBC <= 0.0f) && (uNom >= 0.0f) && (uDenom >= 0.0f))
+    {
+        Result = B + BC*(uNom / (uNom + uDenom));
+        return(Result);
+    }
+
+    r32 RCA = Dot(N, Cross(C - P, A - P));
+    if((RCA <= 0.0f) && (tNom >= 0.0f) && (tDenom >= 0.0f))
+    {
+        Result = A + AC*(tNom / (tNom + tDenom));
+        return(Result);
+    }
+
+    r32 u = RBC / (RAB + RBC + RCA);
+    r32 v = RCA / (RAB + RBC + RCA);
+    r32 w = 1.0f - u - v;
+    Result = u*A + v*B + w*C;
+    return(Result);
+}
+
+internal r32
+DistanceFromTriangle(vec3 P, vec3 A, vec3 B, vec3 C)
+{
+    vec3 ClosestP = ClosestPointInTriangle(P, A, B, C);
+    r32 Result = Length(P - ClosestP);
     return(Result);
 }
 

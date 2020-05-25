@@ -10,6 +10,9 @@ enum render_command_type
     RenderCommand_PushMat4,
     RenderCommand_PushVec3,
 
+    RenderCommand_EnableDepthTest,
+    RenderCommand_DisableDepthTest,
+
     RenderCommand_DrawLine,
 };
 
@@ -50,7 +53,7 @@ struct render_command_buffer_entry
     render_command_buffer_entry() {}
 };
 
-#define MAX_RENDER_COMMAND_BUFFER_ENTRIES 1024
+#define MAX_RENDER_COMMAND_BUFFER_ENTRIES 4096
 #define MAX_RENDER_COMMAND_BUFFER_SHADERS_IN_STACK 128
 struct render_command_buffer
 {

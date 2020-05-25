@@ -74,15 +74,49 @@ struct game_object
     r32 Width, Height, Depth;
 };
 
+struct contact_point
+{
+    b32 Persistent;
+
+    vec3 GlobalA;
+    vec3 LocalA;
+    vec3 GlobalB;
+    vec3 LocalB;
+    vec3 Normal;
+    r32 Penetration;
+
+    r32 AccumulatedImpulse;
+    r32 AccumulatedImpulseTangent1;
+    r32 AccumulatedImpulseTangent2;
+};
+struct collision_manifold
+{
+    u32 ContactCount;
+    // NOTE(georgy): We use only 4. But we need 1 extra slot at the end
+    contact_point Contacts[5];
+};
+
+struct collision_data
+{
+    b32 CollisionThisFrame;
+    game_object *A;
+    game_object *B;
+    collision_manifold Manifold;
+};
+
 struct game_state
 {
     shader Shader;
+    shader DebugShader;
 
     model Cube, Quad, Sphere;
 
     u32 GameObjectCount;
     game_object *Hero;
-    game_object GameObjects[64];
+    game_object GameObjects[1024];
+
+    u32 CollisionCount;
+    collision_data Collisions[8000];
 
     camera Camera;
 
