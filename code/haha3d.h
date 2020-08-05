@@ -1,19 +1,13 @@
 #include "haha3d_platform.h"
 #include "haha3d_intrinsics.h"
-
-global_variable platform_api Platform;
-
-struct shader
-{
-    void *Handle;
-};
+#include "haha3d_shader.h"
 
 struct model
 {
     u32 VertexCount;
     u32 IndexCount;
 
-    void *Handle;
+    GLuint VAO, VBO, EBO;
 };
 
 internal void
@@ -21,19 +15,29 @@ InitModel(model *Model, u32 Size, r32 *Vertices, u32 VertexCount, u32 Stride)
 {
     Model->VertexCount = VertexCount;
 
-    Platform.InitBuffers(&Model->Handle, Size, Vertices, Stride);
+    glGenVertexArrays(1, &Model->VAO);
+    glGenBuffers(1, &Model->VBO);
+    glBindVertexArray(Model->VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, Model->VBO);
+    glBufferData(GL_ARRAY_BUFFER, Size, Vertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, Stride, (void *)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, Stride, (void *)(3*sizeof(r32)));
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
 class camera
 {
-    public:
-        r32 CameraPitch;
-        r32 CameraHead;
+public:
+    r32 CameraPitch;
+    r32 CameraHead;
 
-        vec3 P;
-        vec3 Dir;
+    vec3 P;
+    vec3 Dir;
 
-        mat4 GetRotationMatrix(void);
+    mat4 GetRotationMatrix(void);
 };
 
 struct rigid_body
@@ -108,6 +112,7 @@ struct game_state
 {
     shader Shader;
     shader DebugShader;
+    shader ParticleShader;
 
     model Cube, Quad, Sphere;
 

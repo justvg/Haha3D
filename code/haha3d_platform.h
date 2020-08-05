@@ -28,7 +28,6 @@ typedef double r64;
 #define ArrayCount(Array) (sizeof(Array)/sizeof((Array)[0]))
 
 #include "haha3d_math.h"
-#include "haha3d_render_command_buffer.h"
 
 struct button
 {
@@ -69,30 +68,8 @@ WasDown(button *Button)
 
     return(Result);
 }
-
-#define PLATFORM_INIT_BUFFERS(name) void name(void **Handle, u32 Size, r32 *Vertices, u32 Stride)
-typedef PLATFORM_INIT_BUFFERS(platform_init_buffers);
-
-#define PLATFORM_INIT_BUFFERS_WITH_EBO(name) void name(void **Handle, u32 Size, r32 *Vertices, u32 Stride, u32 SizeOfIndices, u32 *Indices) 
-typedef PLATFORM_INIT_BUFFERS_WITH_EBO(platform_init_buffers_with_ebo);
-
-#define PLATFORM_COMPILE_SHADER(name) void name(void **Handle, char *ShaderFilepath)
-typedef PLATFORM_COMPILE_SHADER(platform_compile_shader);
-
-struct platform_api
-{
-    platform_init_buffers *InitBuffers;
-    platform_init_buffers_with_ebo *InitBuffersWithEBO;
-    platform_compile_shader *CompileShader;
-};
-
 struct game_memory
 {
     u64 PermanentStorageSize;
     void *PermanentStorage;
-
-    platform_api PlatformAPI;
 };
-
-#define GAME_UPDATE_AND_RENDER(name) void name(game_memory *Memory, game_input *Input, render_command_buffer *RenderCommandBuffer, u32 WindowWidth, u32 WindowHeight)
-typedef GAME_UPDATE_AND_RENDER(game_update_and_render);

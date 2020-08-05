@@ -1,7 +1,8 @@
 #include "haha3d.h"
 #include "haha3d_math.cpp"
-#include "haha3d_render_command_buffer.cpp"
+#include "haha3d_particle_system.cpp"
 #include <vector>
+#include <random>
 
 mat4 
 camera::GetRotationMatrix(void)
@@ -858,22 +859,34 @@ InitSphereMesh(void)
 
     model Result;
     Result.IndexCount = IndicesCount;
-    Platform.InitBuffersWithEBO(&Result.Handle, sizeof(vec3)*VerticesCount, (r32 *)Vertices, 3*sizeof(r32), sizeof(u32)*IndicesCount, Indices);
+
+    glGenVertexArrays(1, &Result.VAO);
+    glGenBuffers(1, &Result.VBO);
+    glGenBuffers(1, &Result.EBO);
+    glBindVertexArray(Result.VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, Result.VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vec3)*VerticesCount, Vertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(r32), (void *)0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, Result.EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u32)*IndicesCount, Indices, GL_STATIC_DRAW);
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
     return(Result);
 }
 
-extern "C" 
-GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
+internal void
+GameUpdateAndRender(game_memory *Memory, game_input *Input, u32 WindowWidth, u32 WindowHeight)
 {
-    Platform = Memory->PlatformAPI;
-
     Assert(sizeof(game_state) <= Memory->PermanentStorageSize);
     game_state *GameState = (game_state *)Memory->PermanentStorage;
     if(!GameState->IsInitialized)
     {
-        Platform.CompileShader(&GameState->Shader.Handle, "shaders/shader.glsl");
-        Platform.CompileShader(&GameState->DebugShader.Handle, "shaders/DebugShader.glsl");
+        GameState->Shader = shader("shaders/DefaultShaderVS.glsl", "shaders/DefaultShaderFS.glsl");
+        GameState->DebugShader = shader("shaders/DebugShaderVS.glsl", "shaders/DebugShaderFS.glsl");
+        GameState->ParticleShader = shader("shaders/ParticleShaderVS.glsl", "shaders/ParticleShaderFS.glsl");
         
         r32 CubeVertices[] = {
             // back face
@@ -937,6 +950,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         GameState->Sphere = InitSphereMesh();
 
+#if 0
         GameState->GameObjectCount = 1;
         GameState->Hero = GameState->GameObjects + 0;
         GameState->Hero->Type = GameObject_Cube;
@@ -965,7 +979,6 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         GameState->Hero->RigidBody.CoeffOfRestitution = 0.5f;
         GameState->Hero->RigidBody.CoeffOfFriction = 0.0f;
 
-#if 1
         for(i32 ZOffset = -1;
             ZOffset <= 1;
             ZOffset++)
@@ -1015,46 +1028,14 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                 }
             }
         }
-#else
-        for(i32 YOffset = 0;
-            YOffset <= 5;
-            YOffset++)
-        {
-            game_object *GameObject = &GameState->GameObjects[GameState->GameObjectCount++];
-
-            GameObject->Type = GameObject_Cube;
-            GameObject->Model = &GameState->Cube;
-            GameObject->Width = 1.0f;
-            GameObject->Height = 1.0f;
-            GameObject->Depth = 1.0f;
-            GameObject->RigidBody.P = vec3(0.0f, 0.0001f + 1.0f*(YOffset), 0.0f);
-            GameObject->RigidBody.Mass = 6.0f;
-            Mass = GameObject->RigidBody.Mass;
-            Width = GameObject->Width;
-            Height = GameObject->Height;
-            Depth = GameObject->Depth;
-            InertiaTensorMainDiagonal = vec3(OneOverTwelve*Mass*(Square(Height) + Square(Depth)), 
-                                            OneOverTwelve*Mass*(Square(Width) + Square(Depth)),
-                                            OneOverTwelve*Mass*(Square(Width) + Square(Height)));
-            GameObject->RigidBody.InertiaTensor = Scaling3x3(InertiaTensorMainDiagonal);
-            GameObject->RigidBody.InverseInertiaTensor = Inverse3x3(GameObject->RigidBody.InertiaTensor);
-
-            GameObject->RigidBody.Orientation = Identity3x3();
-            GameObject->RigidBody.InverseOrientation = Transpose3x3(GameObject->RigidBody.Orientation);
-            GameObject->RigidBody.GlobalInverseInertiaTensor = GameObject->RigidBody.Orientation *  
-                                                            GameObject->RigidBody.InverseInertiaTensor * 
-                                                            GameObject->RigidBody.InverseOrientation;
-            GameObject->RigidBody.CoeffOfRestitution = 0.5f;
-            GameObject->RigidBody.CoeffOfFriction = 0.125f;
-        }
 #endif
 
         game_object *GameObject = &GameState->GameObjects[GameState->GameObjectCount++];
         GameObject->Type = GameObject_Wall;
         GameObject->Model = &GameState->Cube;
-        GameObject->Width = 1000.0f;
+        GameObject->Width = 15.0f;
         GameObject->Height = 10.0f;
-        GameObject->Depth = 1000.0f;
+        GameObject->Depth = 15.0f;
         GameObject->RigidBody.P = vec3(0.0f, -5.5f, 0.0f);
         GameObject->RigidBody.Mass = 0.0f;
         GameObject->RigidBody.Orientation = Identity3x3();
@@ -1064,6 +1045,8 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         GameState->IsInitialized = true;
     }
+
+    glClear(GL_COLOR_BUFFER_BIT);
 
     r32 dt = Input->dtForFrame;
 
@@ -1078,7 +1061,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     r32 PitchRadians = Radians(Camera->CameraPitch);
     r32 HeadRadians = Radians(Camera->CameraHead);
 
-    r32 CameraDistanceFromHero = 10.0f;
+    r32 CameraDistanceFromHero = 25.0f;
     r32 FloorDistanceFromHero = CameraDistanceFromHero * Cos(-PitchRadians);
     
     r32 XOffsetFromHero = FloorDistanceFromHero * Sin(HeadRadians);
@@ -1087,10 +1070,9 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     vec3 CameraOffsetFromHero = vec3(XOffsetFromHero, YOffsetFromHero, ZOffsetFromHero);
 
     vec3 CameraForward = Normalize(-CameraOffsetFromHero);
+    vec3 CameraRight = Normalize(Cross(CameraForward, vec3(0.0f, 1.0f, 0.0f)));
     vec3 Forward = Normalize(vec3(CameraForward.x, 0.0f, CameraForward.z));
-    vec3 CameraRight = Normalize(Cross(Forward, vec3(0.0f, 1.0f, 1.0f)));
-    r32 Theta = Degrees(ATan2(Forward.z, Forward.x)) - 90.0f;
-    GameState->Hero->RigidBody.ForceAccumulated = vec3(0.0f, 0.0f, 0.0f);
+    
     if(Input->MoveForward.EndedDown)
     {
         GameState->Hero->RigidBody.ForceAccumulated += 10000.0f*dt*Forward;
@@ -1111,26 +1093,26 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         GameState->Hero->RigidBody.ForceAccumulated += 10000.0f*dt*-CameraRight;
     }
 
-    // Camera->P = GameState->Hero->RigidBody.P + CameraOffsetFromHero;
-    // Camera->Dir = CameraForward;
-    Camera->P = vec3(7.0f, 14.0f, 14.0f);
-    Camera->Dir = -Normalize(Camera->P);
+    Camera->P = CameraOffsetFromHero;
+    Camera->Dir = CameraForward;
 
     mat4 Projection = Perspective(45.0f, (r32)WindowWidth/(r32)WindowHeight, 0.1f, 50.0f);
     mat4 View = Camera->GetRotationMatrix();
 
-    Clear(RenderCommandBuffer, vec3(1.0f, 0.0f, 0.0f));
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    PushShader(RenderCommandBuffer, GameState->DebugShader);
-    PushMat4(RenderCommandBuffer, "Projection", &Projection);
-    PushMat4(RenderCommandBuffer, "View", &View);
+    GameState->DebugShader.Use();
+    GameState->DebugShader.SetMat4("Projection", Projection);
+    GameState->DebugShader.SetMat4("View", View);
 
-    PushShader(RenderCommandBuffer, GameState->Shader);
-    PushMat4(RenderCommandBuffer, "Projection", &Projection);
-    PushMat4(RenderCommandBuffer, "View", &View);
-    PushVec3(RenderCommandBuffer, "CamP", Camera->P);
-    PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 0.0f, 1.0f));
+    GameState->Shader.Use();
+    GameState->Shader.SetMat4("Projection", Projection);
+    GameState->Shader.SetMat4("View", View);
+    GameState->Shader.SetVec3("CamP", Camera->P);
+    GameState->Shader.SetVec3("Color", vec3(0.0f, 0.0f, 1.0f));
 
+    // NOTE(georgy): Physics update
+#if 0
     for(u32 GameObjectIndex = 0;
         GameObjectIndex < GameState->GameObjectCount;
         GameObjectIndex++)
@@ -1175,7 +1157,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             else
             {
                 vec3 ProjectedP = NewGlobalA + Contact->Normal*Dot(rAB, Contact->Normal);
-                float DistSq = LengthSq(NewGlobalB - ProjectedP);
+                r32 DistSq = LengthSq(NewGlobalB - ProjectedP);
                 if(DistSq > PersistentThresholdSq)
                 {
                     Collision->Manifold.Contacts[ContactIndex] = Collision->Manifold.Contacts[--Collision->Manifold.ContactCount];
@@ -1188,6 +1170,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         }
     }
 
+    // TODO(georgy): This broad phase is too slow
     for(u32 GameObjectIndex = 0;
         GameObjectIndex < GameState->GameObjectCount - 1;
         GameObjectIndex++)
@@ -1200,6 +1183,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         {
             game_object *TestGameObject = GameState->GameObjects + TestObjectIndex;
 
+            // TODO(georgy): Too slow! Hash table or smth here
             collision_data *FoundCollision = 0;
             for(u32 CollisionIndex = 0;
                 CollisionIndex < GameState->CollisionCount;
@@ -1513,6 +1497,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                                                     RigidBody->InverseOrientation;
         }
     }
+#endif
 
     for(u32 GameObjectIndex = 0;
         GameObjectIndex < GameState->GameObjectCount;
@@ -1522,22 +1507,25 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         if(GameObjectIndex == (GameState->GameObjectCount - 1))
         {
-            PushVec3(RenderCommandBuffer, "Color", vec3(1.0f, 1.0f, 0.0f));
+            GameState->Shader.SetVec3("Color", vec3(1.0f, 1.0f, 0.0f));
         }
         else
         {
-            PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 0.0f, 1.0f));
+            GameState->Shader.SetVec3("Color", vec3(0.0f, 0.0f, 1.0f));
         }
 
         mat4 Model = Translation(GameObject->RigidBody.P) * 
-                        Mat4(GameObject->RigidBody.Orientation) * 
-                        Scaling(vec3(GameObject->Width, GameObject->Height, GameObject->Depth));
-        PushMat4(RenderCommandBuffer, "Model", &Model);
-        DrawModel(RenderCommandBuffer, GameObject->Model);
+                     Mat4(GameObject->RigidBody.Orientation) * 
+                     Scaling(vec3(GameObject->Width, GameObject->Height, GameObject->Depth));
+        GameState->Shader.SetMat4("Model", Model);
+
+        glBindVertexArray(GameObject->Model->VAO);
+        glDrawArrays(GL_TRIANGLES, 0, GameObject->Model->VertexCount);
+        glBindVertexArray(0);
     }
 
-    PushShader(RenderCommandBuffer, GameState->DebugShader);
-    DisableDepthTest(RenderCommandBuffer);
+    GameState->DebugShader.Use();
+    glDisable(GL_DEPTH_TEST);
     for(u32 CollisionIndex = 0;
         CollisionIndex < GameState->CollisionCount;
         CollisionIndex++)
@@ -1551,15 +1539,141 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             contact_point *Contact = Collision->Manifold.Contacts + ContactIndex;
 
             mat4 Model = Translation(Contact->GlobalA) * Scaling(0.1f);
-            PushMat4(RenderCommandBuffer, "Model", &Model);
-            PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 1.0f, 0.0f));
-            DrawModelEBO(RenderCommandBuffer, &GameState->Sphere);
+            GameState->DebugShader.SetMat4("Model", Model);
+            GameState->DebugShader.SetVec3("Color", vec3(0.0f, 1.0f, 0.0f));
 
-            // Model = Translation(Contact->GlobalB) * Scaling(0.1f);
-            // PushMat4(RenderCommandBuffer, "Model", &Model);
-            // PushVec3(RenderCommandBuffer, "Color", vec3(0.0f, 1.0f, 1.0f));
-            // DrawModelEBO(RenderCommandBuffer, &GameState->Sphere);
+            glBindVertexArray(GameState->Sphere.VAO);
+            glDrawElements(GL_TRIANGLES, GameState->Sphere.IndexCount, GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0);
         }
     }
-    EnableDepthTest(RenderCommandBuffer);
+    glEnable(GL_DEPTH_TEST);
+
+    static std::random_device RandDevice;
+    static std::mt19937 RandGenerator(RandDevice());
+    static std::uniform_real_distribution<r32> RandDistribution(-1.0f, 1.0f);
+
+    static bool IsInit = false;
+    static particle_emmiter Emitter = {};
+    Emitter.MaxParticlesCount = 1;
+    Emitter.SpawnArea = vec3(3.0f, 0.1f, 3.0f);
+    Emitter.InitialRotation = 0.0f;
+    Emitter.RotationVariance = 90.0f;
+    Emitter.RotationSpeedVariance = 240.0f;
+    Emitter.InitialScale = vec2(0.5f, 0.5f);
+    Emitter.ScaleVariance = 0.0f;
+    Emitter.InitialVelocity = vec3(0.0f, 1.0f, 0.0f);
+    Emitter.VelocityVariance = vec3(2.5f, 0.0f, 2.5f);
+    Emitter.InitialAcceleration = vec3(0.0f, 0.0f, 0.0f);
+    Emitter.ParticleLifeTime = 1.0f;
+    Emitter.ParticleLifeTimeVariance = 0.5f;
+    Emitter.InitialColorMult = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    Emitter.ColorMultVariance = vec4(0.0f, 0.5f, 0.5f, 0.0f);
+
+    if(!IsInit)
+    {
+        Emitter.Scale.AddKey(0.0f, vec2(0.0f, 0.0f));
+        Emitter.Scale.AddKey(0.25f, vec2(1.0f, 1.0f));
+        Emitter.Scale.AddKey(0.5f, vec2(0.0f, 0.0f));
+        Emitter.Scale.AddKey(1.0f, vec2(1.0f, 1.0f));
+
+        IsInit = true;
+    }
+
+    // update
+    for(u32 ParticleIndex = 0;
+        ParticleIndex < Emitter.Particles.size();
+        )
+    {
+        particle *Particle = &Emitter.Particles[0] + ParticleIndex;
+
+        Particle->CurrentLifeTime += dt;
+
+        if(Particle->CurrentLifeTime > Particle->LifeTime)
+        {
+            Emitter.Particles[ParticleIndex] = Emitter.Particles[Emitter.Particles.size() - 1];
+            Emitter.Particles.pop_back();
+        }
+        else
+        {
+            r32 t = Particle->CurrentLifeTime / Particle->LifeTime;
+
+            Particle->Velocity += dt*Particle->Acceleration;
+            Particle->P += dt*Particle->Velocity;
+
+            Particle->Rotation += dt*Particle->RotationSpeed;
+            // Particle->Scale = Particle->CurrentLifeTime*Particle->InitialScale;
+            Particle->Scale = Particle->ScaleVarianceStart + Emitter.Scale.GetValueForTime(t);
+
+            ParticleIndex++;
+        }
+    }
+
+    // new particles
+    r32 NewParticlesCountReal = 50.0f*dt;
+    u32 NewParticlesCount = (u32)NewParticlesCountReal;
+    Emitter.PartialParticle += NewParticlesCountReal - NewParticlesCount;
+    if(Emitter.PartialParticle > 1.0f)
+    {
+        NewParticlesCount++;
+        Emitter.PartialParticle -= 1.0f;
+    }
+    for(u32 NewParticle = 0;
+        NewParticle < NewParticlesCount;
+        NewParticle++)
+    {
+        if(Emitter.Particles.size() < Emitter.MaxParticlesCount)
+        {
+            particle Particle;
+
+            vec3 Offset = Hadamard(vec3(RandDistribution(RandGenerator), RandDistribution(RandGenerator), RandDistribution(RandGenerator)),
+                                   0.5f*Emitter.SpawnArea);
+            Particle.P = Emitter.P + Offset;
+
+            vec3 VelocityOffset = Hadamard(vec3(RandDistribution(RandGenerator), RandDistribution(RandGenerator), RandDistribution(RandGenerator)),
+                                           Emitter.VelocityVariance);
+            Particle.Velocity = Emitter.InitialVelocity + VelocityOffset;
+
+            Particle.Acceleration = Emitter.InitialAcceleration;
+
+            Particle.Rotation = Emitter.InitialRotation + RandDistribution(RandGenerator)*Emitter.RotationVariance;
+            Particle.RotationSpeed = RandDistribution(RandGenerator)*Emitter.RotationSpeedVariance;
+
+            Particle.ScaleVarianceStart = RandDistribution(RandGenerator)*vec2(Emitter.ScaleVariance, Emitter.ScaleVariance); 
+            Particle.Scale = Emitter.Scale.GetValueForTime(0.0f) + Particle.ScaleVarianceStart;
+
+            vec4 ColorMultOffset = Hadamard(vec4(RandDistribution(RandGenerator), RandDistribution(RandGenerator), RandDistribution(RandGenerator), RandDistribution(RandGenerator)),
+                                            Emitter.ColorMultVariance);
+            Particle.ColorMult = Emitter.InitialColorMult + ColorMultOffset;
+
+            Particle.CurrentLifeTime = 0.0f;
+            Particle.LifeTime = Emitter.ParticleLifeTime + RandDistribution(RandGenerator)*Emitter.ParticleLifeTimeVariance;
+
+            Emitter.Particles.push_back(Particle);
+        }
+    }
+
+    GameState->ParticleShader.Use();
+    GameState->ParticleShader.SetMat4("Projection", Projection);
+    GameState->ParticleShader.SetMat4("View", View);
+
+    // render particles
+    glBindVertexArray(GameState->Quad.VAO);   
+    for(u32 ParticleIndex = 0;
+        ParticleIndex < Emitter.Particles.size();
+        ParticleIndex++)
+    {
+        particle *Particle = &Emitter.Particles[0] + ParticleIndex;
+
+        vec3 CamRight = Rotation3x3(Particle->Rotation, vec3(-CameraForward)) * CameraRight;
+        vec3 CamUp = Cross(-CameraForward, CamRight);
+
+        GameState->ParticleShader.SetVec3("WorldP", Particle->P);
+        GameState->ParticleShader.SetVec3("CameraRight", CamRight);
+        GameState->ParticleShader.SetVec3("CameraUp", CamUp);
+        GameState->ParticleShader.SetVec2("Scale", Particle->Scale);
+        GameState->ParticleShader.SetVec4("ColorMult", Particle->ColorMult);
+        glDrawArrays(GL_TRIANGLES, 0, GameState->Quad.VertexCount);
+    }
+    glBindVertexArray(0);   
 }

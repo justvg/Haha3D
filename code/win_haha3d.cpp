@@ -7,85 +7,11 @@
 #include "glew\wglew.h"
 
 #include "haha3d_platform.h"
-#include "haha3d_renderer_opengl.cpp"
+#include "haha3d.cpp"
 
 global_variable b32 GlobalRunning;
 global_variable b32 GlobalWindowIsFocused;
 global_variable LARGE_INTEGER GlobalPerformanceFrequency;
-
-internal void
-CatStrings(u32 ALength, char *SourceA, u32 BLength, char *SourceB, u32 DestSize, char *Dest)
-{
-    Assert(DestSize > (ALength + BLength));
-
-    for(u32 Index = 0;
-        Index < ALength;
-        Index++)
-    {
-        *Dest++ = *SourceA++;
-    }
-
-    for(u32 Index = 0;
-        Index < BLength;
-        Index++)
-    {
-        *Dest++ = *SourceB++;
-    }
-
-    *Dest = 0;
-}
-
-struct win_game_code
-{
-    HMODULE GameCodeDLL;
-    FILETIME DLLLastWriteTime;
-
-    game_update_and_render *UpdateAndRender;
-};
-
-internal FILETIME 
-WinGetLastWriteTime(char *Filename)
-{
-    FILETIME LastWriteTime = {};
-
-    WIN32_FILE_ATTRIBUTE_DATA Data;
-    if(GetFileAttributesEx(Filename, GetFileExInfoStandard, &Data))
-    {
-        LastWriteTime = Data.ftLastWriteTime;
-    }
-
-    return(LastWriteTime);
-}
-
-internal win_game_code
-WinLoadGameCode(char *SourceDLLName, char *TempDLLName)
-{
-    win_game_code Result = {};
-
-    Result.DLLLastWriteTime = WinGetLastWriteTime(SourceDLLName);
-
-    CopyFile(SourceDLLName, TempDLLName, FALSE);
-
-    Result.GameCodeDLL = LoadLibrary(TempDLLName);
-    if(Result.GameCodeDLL)
-    {
-        Result.UpdateAndRender = (game_update_and_render *)GetProcAddress(Result.GameCodeDLL, "GameUpdateAndRender");
-    }
-
-    return(Result);
-}
-
-internal void
-WinUnloadGameCode(win_game_code *GameCode)
-{
-    if(GameCode->GameCodeDLL)
-    {
-        FreeLibrary(GameCode->GameCodeDLL);
-        GameCode->GameCodeDLL = 0;
-    }
-
-    GameCode->UpdateAndRender = 0;
-}
 
 internal void
 WinSetPixelFormat(HDC WindowDC)
@@ -196,7 +122,12 @@ WinInitOpenGL(HWND Window)
             ModernOpenGLInitialized = true;
 
             wglSwapIntervalEXT(1);
-            InitOpenGLProperties();
+            
+            // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            glEnable(GL_DEPTH_TEST);
+            glEnable(GL_CULL_FACE);
+            glEnable(GL_MULTISAMPLE);
+            glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
         }
     }
 
@@ -283,28 +214,6 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
     UINT DesiredSchedulerMS = 1;
     b32 SleepIsGranular = (timeBeginPeriod(DesiredSchedulerMS) == TIMERR_NOERROR);
 
-    char ExecutableFilename[MAX_PATH];
-    char *OneAfterLastExecutableFilenameSlash = 0;
-    DWORD ExecutableFilenameLength = GetModuleFileName(0, ExecutableFilename, sizeof(ExecutableFilename));
-    for(char *Scan = ExecutableFilename;
-        *Scan;
-        Scan++)
-    {
-        if(*Scan == '\\')
-        {
-            OneAfterLastExecutableFilenameSlash = Scan + 1;
-        }
-    }
-
-    char GameCodeSourceDLLName[MAX_PATH];
-    char GameCodeTempDLLName[MAX_PATH];
-    CatStrings((u32)(OneAfterLastExecutableFilenameSlash - ExecutableFilename), ExecutableFilename,
-                sizeof("haha3d.dll"), "haha3d.dll", 
-                sizeof(GameCodeSourceDLLName), GameCodeSourceDLLName);
-    CatStrings((u32)(OneAfterLastExecutableFilenameSlash - ExecutableFilename), ExecutableFilename,
-                sizeof("haha3d_temp.dll"), "haha3d_temp.dll", 
-                sizeof(GameCodeTempDLLName), GameCodeTempDLLName);
-
     WNDCLASS WindowClass = {};
     WindowClass.style = CS_VREDRAW | CS_HREDRAW;
     WindowClass.lpfnWndProc = WinWindowCallback;
@@ -358,20 +267,12 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
             GameInput.MouseX = MouseP.x;
             GameInput.MouseY = MouseP.y;
 
-            platform_api PlatformAPI = {};
-            PlatformAPI.InitBuffers = InitBuffers;
-            PlatformAPI.InitBuffersWithEBO = InitBuffersWithEBO;
-            PlatformAPI.CompileShader = CompileShader;
-
             game_memory GameMemory = {};
 
             GameMemory.PermanentStorageSize = Megabytes(256);
             GameMemory.PermanentStorage = VirtualAlloc(0, GameMemory.PermanentStorageSize, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
 
-            GameMemory.PlatformAPI = PlatformAPI;
-
-            win_game_code Game = WinLoadGameCode(GameCodeSourceDLLName, GameCodeTempDLLName);
-            
+            // TODO(georgy): Make this robust (get current monitor Hz)
             r32 TargetSecondsPerFrame = 1.0f / 60.0f;
             GameInput.dtForFrame = TargetSecondsPerFrame;
             LARGE_INTEGER LastCounter = WinGetPerformanceCounter();
@@ -498,31 +399,12 @@ WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowC
                 u32 WindowHeight = Rect.bottom - Rect.top;
 
                 glViewport(0, 0, WindowWidth, WindowHeight);
-                glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
-                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-                render_command_buffer RenderCommandBuffer;
-                RenderCommandBuffer.CommandCount = 0;
-                RenderCommandBuffer.CurrentShaderID = 0;
-                RenderCommandBuffer.ShadersStackTop = 0;
-
-                if(Game.UpdateAndRender)
-                {
-                    Game.UpdateAndRender(&GameMemory, &GameInput, &RenderCommandBuffer, WindowWidth, WindowHeight);
-                }
+                GameUpdateAndRender(&GameMemory, &GameInput, WindowWidth, WindowHeight);
 
                 HDC WindowDC = GetDC(Window);
-                RenderCommands(&RenderCommandBuffer);
                 SwapBuffers(WindowDC);
                 ReleaseDC(Window, WindowDC);
-
-                FILETIME NewGameCodeDLLWriteTime = WinGetLastWriteTime(GameCodeSourceDLLName);
-                b32 GameCodeNeedsToBeReloaded = CompareFileTime(&NewGameCodeDLLWriteTime, &Game.DLLLastWriteTime);
-                if(GameCodeNeedsToBeReloaded)
-                {
-                    WinUnloadGameCode(&Game);
-                    Game = WinLoadGameCode(GameCodeSourceDLLName, GameCodeTempDLLName);
-                }
 
 #if 0
                 r32 SecondsElapsedForFrame = WinGetSecondsElapsed(LastCounter, WinGetPerformanceCounter());
