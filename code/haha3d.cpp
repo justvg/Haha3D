@@ -1,8 +1,5 @@
 #include "haha3d.h"
-#include "haha3d_math.cpp"
 #include "haha3d_particle_system.cpp"
-#include <vector>
-#include <random>
 
 mat4 
 camera::GetRotationMatrix(void)
@@ -887,7 +884,144 @@ GameUpdateAndRender(game_memory *Memory, game_input *Input, u32 WindowWidth, u32
         GameState->Shader = shader("shaders/DefaultShaderVS.glsl", "shaders/DefaultShaderFS.glsl");
         GameState->DebugShader = shader("shaders/DebugShaderVS.glsl", "shaders/DebugShaderFS.glsl");
         GameState->ParticleShader = shader("shaders/ParticleShaderVS.glsl", "shaders/ParticleShaderFS.glsl");
+        GameState->SSAOShader = shader("shaders/SSAOVS.glsl", "shaders/SSAOFS.glsl");
+        GameState->SSAOBlurShader = shader("shaders/SSAOVS.glsl", "shaders/SSAOBlurFS.glsl");
+        GameState->DeferredShader = shader("shaders/DeferredShaderVS.glsl", "shaders/DeferredShaderFS.glsl");
+
+        std::uniform_real_distribution<float> RandomFloats(0.0f, 1.0f);
+        std::default_random_engine Generator;
+        vec3 SSAOSampleKernel[32];
+        for(uint32_t I = 0; I < ArrayCount(SSAOSampleKernel); I++)
+        {
+            vec3 Sample;
+            do
+            {
+                Sample.x = 2.0f*RandomFloats(Generator) - 1.0f;
+                Sample.y = 2.0f*RandomFloats(Generator) - 1.0f;
+                Sample.z = RandomFloats(Generator);
+            } while(LengthSq(Sample) > 1.0f);
+
+            float t = (float)I / ArrayCount(SSAOSampleKernel); 
+            float Scale = Lerp(0.1f, 1.0f, t*t); 
+            Sample *= Scale;
+
+            SSAOSampleKernel[I] = Sample;
+        }
+
+        vec3 SSAONoiseTangent[16];
+        for(uint32_t I = 0; I < ArrayCount(SSAONoiseTangent); I++)
+        {
+            vec3 TangentNoise;
+            TangentNoise.x = 2.0f*RandomFloats(Generator) - 1.0f;
+            TangentNoise.y = 2.0f*RandomFloats(Generator) - 1.0f;
+            TangentNoise.z = 0.0f;
+
+            SSAONoiseTangent[I] = TangentNoise;
+        }
+
+        glGenTextures(1, &GameState->SSAONoiseTangentTexture);
+        glBindTexture(GL_TEXTURE_2D, GameState->SSAONoiseTangentTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, 4, 4, 0, GL_RGB, GL_FLOAT, SSAONoiseTangent);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+        GameState->SSAOShader.Use();
+        GameState->SSAOShader.SetI32("gPos", 0);
+        GameState->SSAOShader.SetI32("gNormals", 1);
+        GameState->SSAOShader.SetI32("gTangentNoise", 2);
+        GameState->SSAOShader.SetVec3Array("SampleKernel", ArrayCount(SSAOSampleKernel), SSAOSampleKernel);
+
+        GameState->SSAOBlurShader.Use();
+        GameState->SSAOBlurShader.SetI32("AOTexture", 0);
+
+        GameState->DeferredShader.Use();
+        GameState->DeferredShader.SetI32("gPos", 0);
+        GameState->DeferredShader.SetI32("gNormals", 1);
+        GameState->DeferredShader.SetI32("gAlbedo", 2);
+        GameState->DeferredShader.SetI32("AOTexture", 3);
+
+        // NOTE(georgy): G-Buffer
+        glGenFramebuffers(1, &GameState->GBuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, GameState->GBuffer);
+
+        glGenTextures(1, &GameState->GBufferPos);
+        glBindTexture(GL_TEXTURE_2D, GameState->GBufferPos);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, WindowWidth, WindowHeight, 0, GL_RGB, GL_FLOAT, 0);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, GameState->GBufferPos, 0);
         
+        glGenTextures(1, &GameState->GBufferNormals);
+        glBindTexture(GL_TEXTURE_2D, GameState->GBufferNormals);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, WindowWidth, WindowHeight, 0, GL_RGB, GL_FLOAT, 0);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, GameState->GBufferNormals, 0);
+                
+        glGenTextures(1, &GameState->GBufferAlbedo);
+        glBindTexture(GL_TEXTURE_2D, GameState->GBufferAlbedo);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, WindowWidth, WindowHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, GameState->GBufferAlbedo, 0);
+
+        glGenRenderbuffers(1, &GameState->DepthRBO);
+        glBindRenderbuffer(GL_RENDERBUFFER, GameState->DepthRBO);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, WindowWidth, WindowHeight);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, GameState->DepthRBO);
+
+        GLuint GBufferAttachments[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2};
+        glDrawBuffers(ArrayCount(GBufferAttachments), GBufferAttachments);
+        if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        {
+            OutputDebugStringA("Framebuffer isn't complete!\n");
+        }        
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+
+        // NOTE(georgy): SSAO framebuffer
+        glGenFramebuffers(1, &GameState->SSAOFramebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, GameState->SSAOFramebuffer);
+
+        glGenTextures(1, &GameState->SSAOColorBuffer);
+        glBindTexture(GL_TEXTURE_2D, GameState->SSAOColorBuffer);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, WindowWidth, WindowHeight, 0, GL_RED, GL_FLOAT, 0);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, GameState->SSAOColorBuffer, 0);
+        if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        {
+            OutputDebugStringA("Framebuffer isn't complete!\n");
+        }        
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        glGenFramebuffers(1, &GameState->SSAOBlurFramebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, GameState->SSAOBlurFramebuffer);
+
+        glGenTextures(1, &GameState->SSAOBlurColorBuffer);
+        glBindTexture(GL_TEXTURE_2D, GameState->SSAOBlurColorBuffer);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, WindowWidth, WindowHeight, 0, GL_RED, GL_FLOAT, 0);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, GameState->SSAOBlurColorBuffer, 0);
+        if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        {
+            OutputDebugStringA("Framebuffer isn't complete!\n");
+        }        
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
         r32 CubeVertices[] = {
             // back face
             -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f, 
@@ -949,6 +1083,24 @@ GameUpdateAndRender(game_memory *Memory, game_input *Input, u32 WindowWidth, u32
         InitModel(&GameState->Quad, sizeof(QuadVertices), QuadVertices, 6, 3*sizeof(r32));
 
         GameState->Sphere = InitSphereMesh();
+
+        r32 DeferredQuadVertices[] = 
+        {
+            -1.0f, 1.0f, 0.0f,
+            -1.0f, -1.0f, 0.0f,
+            1.0f, 1.0f, 0.0f,
+            1.0f, -1.0f, 0.0f
+        };
+
+        glGenVertexArrays(1, &GameState->DeferredPassQuadVAO);
+        glGenBuffers(1, &GameState->DeferredPassQuadVBO);
+        glBindVertexArray(GameState->DeferredPassQuadVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, GameState->DeferredPassQuadVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(DeferredQuadVertices), DeferredQuadVertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void *)0);
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 #if 0
         GameState->GameObjectCount = 1;
@@ -1043,10 +1195,34 @@ GameUpdateAndRender(game_memory *Memory, game_input *Input, u32 WindowWidth, u32
         GameObject->RigidBody.CoeffOfRestitution = 0.5f;
         GameObject->RigidBody.CoeffOfFriction = 0.125f;   
 
+        GameObject = &GameState->GameObjects[GameState->GameObjectCount++];
+        GameObject->Type = GameObject_Wall;
+        GameObject->Model = &GameState->Cube;
+        GameObject->Width = 1.5f;
+        GameObject->Height = 1.5f;
+        GameObject->Depth = 1.5f;
+        GameObject->RigidBody.P = vec3(3.0f, 0.25f, 0.0f);
+        GameObject->RigidBody.Mass = 0.0f;
+        GameObject->RigidBody.Orientation = Identity3x3();
+        GameObject->RigidBody.InverseOrientation = Transpose3x3(GameObject->RigidBody.Orientation);
+        GameObject->RigidBody.CoeffOfRestitution = 0.5f;
+        GameObject->RigidBody.CoeffOfFriction = 0.125f;
+        
+        GameObject = &GameState->GameObjects[GameState->GameObjectCount++];
+        GameObject->Type = GameObject_Wall;
+        GameObject->Model = &GameState->Cube;
+        GameObject->Width = 15.0f;
+        GameObject->Height = 20.0f;
+        GameObject->Depth = 1.0f;
+        GameObject->RigidBody.P = vec3(0.0f, 0.0f, -8.0f);
+        GameObject->RigidBody.Mass = 0.0f;
+        GameObject->RigidBody.Orientation = Identity3x3();
+        GameObject->RigidBody.InverseOrientation = Transpose3x3(GameObject->RigidBody.Orientation);
+        GameObject->RigidBody.CoeffOfRestitution = 0.5f;
+        GameObject->RigidBody.CoeffOfFriction = 0.125f;
+
         GameState->IsInitialized = true;
     }
-
-    glClear(GL_COLOR_BUFFER_BIT);
 
     r32 dt = Input->dtForFrame;
 
@@ -1095,21 +1271,6 @@ GameUpdateAndRender(game_memory *Memory, game_input *Input, u32 WindowWidth, u32
 
     Camera->P = CameraOffsetFromHero;
     Camera->Dir = CameraForward;
-
-    mat4 Projection = Perspective(45.0f, (r32)WindowWidth/(r32)WindowHeight, 0.1f, 50.0f);
-    mat4 View = Camera->GetRotationMatrix();
-
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    GameState->DebugShader.Use();
-    GameState->DebugShader.SetMat4("Projection", Projection);
-    GameState->DebugShader.SetMat4("View", View);
-
-    GameState->Shader.Use();
-    GameState->Shader.SetMat4("Projection", Projection);
-    GameState->Shader.SetMat4("View", View);
-    GameState->Shader.SetVec3("CamP", Camera->P);
-    GameState->Shader.SetVec3("Color", vec3(0.0f, 0.0f, 1.0f));
 
     // NOTE(georgy): Physics update
 #if 0
@@ -1499,6 +1660,22 @@ GameUpdateAndRender(game_memory *Memory, game_input *Input, u32 WindowWidth, u32
     }
 #endif
 
+    mat4 Projection = Perspective(45.0f, (r32)WindowWidth/(r32)WindowHeight, 0.1f, 50.0f);
+    mat4 View = Camera->GetRotationMatrix();
+
+    // NOTE(georgy): GBuffer rendering
+    glBindFramebuffer(GL_FRAMEBUFFER, GameState->GBuffer);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    GameState->DebugShader.Use();
+    GameState->DebugShader.SetMat4("Projection", Projection);
+    GameState->DebugShader.SetMat4("View", View);
+
+    GameState->Shader.Use();
+    GameState->Shader.SetMat4("Projection", Projection);
+    GameState->Shader.SetMat4("View", View);
+    GameState->Shader.SetVec3("Color", vec3(0.0f, 0.0f, 1.0f));
+
     for(u32 GameObjectIndex = 0;
         GameObjectIndex < GameState->GameObjectCount;
         GameObjectIndex++)
@@ -1524,6 +1701,56 @@ GameUpdateAndRender(game_memory *Memory, game_input *Input, u32 WindowWidth, u32
         glBindVertexArray(0);
     }
 
+    // NOTE(georgy): SSAO buffer rendering
+    glBindFramebuffer(GL_FRAMEBUFFER, GameState->SSAOFramebuffer);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    GameState->SSAOShader.Use();
+    GameState->SSAOShader.SetMat4("Projection", Projection);
+    GameState->SSAOShader.SetR32("WindowWidth", (float)WindowWidth);
+    GameState->SSAOShader.SetR32("WindowHeight", (float)WindowHeight);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, GameState->GBufferPos);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, GameState->GBufferNormals);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, GameState->SSAONoiseTangentTexture);
+
+    glBindVertexArray(GameState->DeferredPassQuadVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    // NOTE(georgy): SSAO blur path
+    glBindFramebuffer(GL_FRAMEBUFFER, GameState->SSAOBlurFramebuffer);
+    glClear(GL_COLOR_BUFFER_BIT);
+    
+    GameState->SSAOBlurShader.Use();
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, GameState->SSAOColorBuffer);
+    
+    glBindVertexArray(GameState->DeferredPassQuadVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+
+    // NOTE(georgy): Final screen pass
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    GameState->DeferredShader.Use();
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, GameState->GBufferPos);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, GameState->GBufferNormals);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, GameState->GBufferAlbedo);
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, GameState->SSAOBlurColorBuffer);
+
+    vec3 LightDirView = ToMat3(View) * vec3(-0.5, -0.7, -0.5);
+    GameState->DeferredShader.SetVec3("LightDirView", LightDirView);
+
+    glBindVertexArray(GameState->DeferredPassQuadVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+#if 0
     GameState->DebugShader.Use();
     glDisable(GL_DEPTH_TEST);
     for(u32 CollisionIndex = 0;
@@ -1548,132 +1775,58 @@ GameUpdateAndRender(game_memory *Memory, game_input *Input, u32 WindowWidth, u32
         }
     }
     glEnable(GL_DEPTH_TEST);
+#endif
 
-    static std::random_device RandDevice;
-    static std::mt19937 RandGenerator(RandDevice());
-    static std::uniform_real_distribution<r32> RandDistribution(-1.0f, 1.0f);
-
+#if 0
+    // PARTICLE SYSTEM TEST
     static bool IsInit = false;
     static particle_emmiter Emitter = {};
-    Emitter.MaxParticlesCount = 1;
-    Emitter.SpawnArea = vec3(3.0f, 0.1f, 3.0f);
+    Emitter.Looped = true;
+    Emitter.MaxParticlesCount = 1024;
+    Emitter.SpawnArea = vec3(0.0f, 0.0f, 0.0f);
     Emitter.InitialRotation = 0.0f;
-    Emitter.RotationVariance = 90.0f;
-    Emitter.RotationSpeedVariance = 240.0f;
-    Emitter.InitialScale = vec2(0.5f, 0.5f);
+    Emitter.RotationVariance = 0.0f;
+    Emitter.RotationSpeedVariance = 0.0f;
     Emitter.ScaleVariance = 0.0f;
-    Emitter.InitialVelocity = vec3(0.0f, 1.0f, 0.0f);
     Emitter.VelocityVariance = vec3(2.5f, 0.0f, 2.5f);
-    Emitter.InitialAcceleration = vec3(0.0f, 0.0f, 0.0f);
-    Emitter.ParticleLifeTime = 1.0f;
-    Emitter.ParticleLifeTimeVariance = 0.5f;
-    Emitter.InitialColorMult = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    Emitter.ColorMultVariance = vec4(0.0f, 0.5f, 0.5f, 0.0f);
+    Emitter.InitialAcceleration = vec3(0.0f, -9.8f, 0.0f);
+    Emitter.ParticleLifeTime = 2.5f;
+    Emitter.ParticleLifeTimeVariance = 0.75f;
+    Emitter.ColorMultVariance = vec4(0.7f, 0.7f, 0.7f, 0.0f);
 
     if(!IsInit)
     {
+        Emitter.CurrentLifeTime = 0.0f;
+        Emitter.LifeTime = 1.0f;
+
+        Emitter.EmissionPerSecond.AddKey(0.0f, 100.0f);
+        Emitter.EmissionPerSecond.AddKey(1.0f, 100.0f);
+
+        Emitter.Velocity.AddKey(0.0f, vec3(0.0f, 8.0f, 0.0f));
+        Emitter.Velocity.AddKey(1.0f, vec3(0.0f, 8.0f, 0.0f));
+
         Emitter.Scale.AddKey(0.0f, vec2(0.0f, 0.0f));
-        Emitter.Scale.AddKey(0.25f, vec2(1.0f, 1.0f));
-        Emitter.Scale.AddKey(0.5f, vec2(0.0f, 0.0f));
-        Emitter.Scale.AddKey(1.0f, vec2(1.0f, 1.0f));
+        Emitter.Scale.AddKey(1.0f, vec2(0.9f, 0.9f));
+
+        Emitter.RotationSpeed.AddKey(0.0f, 0.0f);
+        Emitter.RotationSpeed.AddKey(1.0f, 0.0f);
+
+        Emitter.ColorMult.AddKey(0.0f, vec4(1.0f, 1.0f, 1.0f, 1.0f));
+        Emitter.ColorMult.AddKey(1.0f, vec4(1.0f, 1.0f, 1.0f, 1.0f));
+
+        Emitter.RandGenerator = std::mt19937(Emitter.RandDevice());
+        Emitter.RandDistribution = std::uniform_real_distribution<r32>(-1.0f, 1.0f);
 
         IsInit = true;
     }
 
-    // update
-    for(u32 ParticleIndex = 0;
-        ParticleIndex < Emitter.Particles.size();
-        )
-    {
-        particle *Particle = &Emitter.Particles[0] + ParticleIndex;
+    UpdateParticles(&Emitter, dt);
 
-        Particle->CurrentLifeTime += dt;
-
-        if(Particle->CurrentLifeTime > Particle->LifeTime)
-        {
-            Emitter.Particles[ParticleIndex] = Emitter.Particles[Emitter.Particles.size() - 1];
-            Emitter.Particles.pop_back();
-        }
-        else
-        {
-            r32 t = Particle->CurrentLifeTime / Particle->LifeTime;
-
-            Particle->Velocity += dt*Particle->Acceleration;
-            Particle->P += dt*Particle->Velocity;
-
-            Particle->Rotation += dt*Particle->RotationSpeed;
-            // Particle->Scale = Particle->CurrentLifeTime*Particle->InitialScale;
-            Particle->Scale = Particle->ScaleVarianceStart + Emitter.Scale.GetValueForTime(t);
-
-            ParticleIndex++;
-        }
-    }
-
-    // new particles
-    r32 NewParticlesCountReal = 50.0f*dt;
-    u32 NewParticlesCount = (u32)NewParticlesCountReal;
-    Emitter.PartialParticle += NewParticlesCountReal - NewParticlesCount;
-    if(Emitter.PartialParticle > 1.0f)
-    {
-        NewParticlesCount++;
-        Emitter.PartialParticle -= 1.0f;
-    }
-    for(u32 NewParticle = 0;
-        NewParticle < NewParticlesCount;
-        NewParticle++)
-    {
-        if(Emitter.Particles.size() < Emitter.MaxParticlesCount)
-        {
-            particle Particle;
-
-            vec3 Offset = Hadamard(vec3(RandDistribution(RandGenerator), RandDistribution(RandGenerator), RandDistribution(RandGenerator)),
-                                   0.5f*Emitter.SpawnArea);
-            Particle.P = Emitter.P + Offset;
-
-            vec3 VelocityOffset = Hadamard(vec3(RandDistribution(RandGenerator), RandDistribution(RandGenerator), RandDistribution(RandGenerator)),
-                                           Emitter.VelocityVariance);
-            Particle.Velocity = Emitter.InitialVelocity + VelocityOffset;
-
-            Particle.Acceleration = Emitter.InitialAcceleration;
-
-            Particle.Rotation = Emitter.InitialRotation + RandDistribution(RandGenerator)*Emitter.RotationVariance;
-            Particle.RotationSpeed = RandDistribution(RandGenerator)*Emitter.RotationSpeedVariance;
-
-            Particle.ScaleVarianceStart = RandDistribution(RandGenerator)*vec2(Emitter.ScaleVariance, Emitter.ScaleVariance); 
-            Particle.Scale = Emitter.Scale.GetValueForTime(0.0f) + Particle.ScaleVarianceStart;
-
-            vec4 ColorMultOffset = Hadamard(vec4(RandDistribution(RandGenerator), RandDistribution(RandGenerator), RandDistribution(RandGenerator), RandDistribution(RandGenerator)),
-                                            Emitter.ColorMultVariance);
-            Particle.ColorMult = Emitter.InitialColorMult + ColorMultOffset;
-
-            Particle.CurrentLifeTime = 0.0f;
-            Particle.LifeTime = Emitter.ParticleLifeTime + RandDistribution(RandGenerator)*Emitter.ParticleLifeTimeVariance;
-
-            Emitter.Particles.push_back(Particle);
-        }
-    }
-
+    glBindVertexArray(GameState->Quad.VAO);   
     GameState->ParticleShader.Use();
     GameState->ParticleShader.SetMat4("Projection", Projection);
     GameState->ParticleShader.SetMat4("View", View);
-
-    // render particles
-    glBindVertexArray(GameState->Quad.VAO);   
-    for(u32 ParticleIndex = 0;
-        ParticleIndex < Emitter.Particles.size();
-        ParticleIndex++)
-    {
-        particle *Particle = &Emitter.Particles[0] + ParticleIndex;
-
-        vec3 CamRight = Rotation3x3(Particle->Rotation, vec3(-CameraForward)) * CameraRight;
-        vec3 CamUp = Cross(-CameraForward, CamRight);
-
-        GameState->ParticleShader.SetVec3("WorldP", Particle->P);
-        GameState->ParticleShader.SetVec3("CameraRight", CamRight);
-        GameState->ParticleShader.SetVec3("CameraUp", CamUp);
-        GameState->ParticleShader.SetVec2("Scale", Particle->Scale);
-        GameState->ParticleShader.SetVec4("ColorMult", Particle->ColorMult);
-        glDrawArrays(GL_TRIANGLES, 0, GameState->Quad.VertexCount);
-    }
+    RenderParticles(&Emitter, GameState->ParticleShader, CameraForward, CameraRight, GameState->Quad.VertexCount);
     glBindVertexArray(0);   
+#endif
 }

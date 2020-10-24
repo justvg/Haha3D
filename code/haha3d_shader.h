@@ -1,6 +1,4 @@
 #pragma once
-#include <stdlib.h>
-#include <stdio.h>
 
 class shader
 {
@@ -19,6 +17,7 @@ public:
 	void SetVec4(const char* Name, vec4 V);
 	void SetMat4(const char* Name, const mat4& M);
 	void SetVec2Array(const char* Name, uint32_t Count, vec2* V);
+	void SetVec3Array(const char* Name, uint32_t Count, vec3* V);
 };
 
 struct read_entire_file_result
@@ -131,4 +130,9 @@ void shader::SetMat4(const char* Name, const mat4& M)
 void shader::SetVec2Array(const char* Name, uint32_t Count, vec2* V)
 {
 	glUniform2fv(glGetUniformLocation(ID, Name), Count, (GLfloat*)V);
+}
+
+void shader::SetVec3Array(const char* Name, uint32_t Count, vec3* V)
+{
+	glUniform3fv(glGetUniformLocation(ID, Name), Count, (GLfloat*)V);
 }

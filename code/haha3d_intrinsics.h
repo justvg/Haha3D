@@ -1,13 +1,11 @@
 #pragma once
 
-// TODO(georgy): Get rid of math.h
 #include <math.h>
 
 inline r32
 Square(r32 Value)
 {
     r32 Result = Value * Value;
-    
     return(Result);
 }
 
@@ -15,7 +13,6 @@ inline r32
 SquareRoot(r32 Value)
 {
     r32 Result = sqrtf(Value);
-
     return(Result);
 }
 
@@ -43,16 +40,21 @@ Sign(r32 Value)
 inline r32
 Absolute(r32 Value)
 {
-    r32 Result = (Value >= 0.0f) ? Value : -Value; 
-    
-    return(Result);
+    if(Value < 0.0f) Value = -Value;
+    return(Value);
+}
+
+inline uint32_t
+Absolute(int32_t Value)
+{
+	if (Value < 0) Value = -Value;
+	return((uint32_t)Value);
 }
 
 inline r32
 Sin(r32 Angle)
 {
     r32 Result = sinf(Angle);
-
     return(Result);
 }
 
@@ -60,7 +62,6 @@ inline r32
 Cos(r32 Angle)
 {
     r32 Result = cosf(Angle);
-
     return(Result);
 }
 
@@ -68,7 +69,6 @@ inline r32
 Tan(r32 Angle)
 {
     r32 Result = tanf(Angle);
-
     return(Result);
 }
 

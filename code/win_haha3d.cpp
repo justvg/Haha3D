@@ -1,8 +1,5 @@
 #include <Windows.h>
 
-#include <string>
-#include <fstream>
-
 #include "glew\glew.h"
 #include "glew\wglew.h"
 
@@ -127,7 +124,7 @@ WinInitOpenGL(HWND Window)
             glEnable(GL_DEPTH_TEST);
             glEnable(GL_CULL_FACE);
             glEnable(GL_MULTISAMPLE);
-            glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         }
     }
 

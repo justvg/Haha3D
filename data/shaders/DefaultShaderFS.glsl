@@ -1,19 +1,19 @@
 #version 330 core
-out vec4 FragColor;
+layout (location = 0) out vec3 gPos;
+layout (location = 1) out vec3 gNormal;
+layout (location = 2) out vec3 gAlbedo;
 
 uniform vec3 Color;
 
-in vec3 FragPosWorld;
-in vec3 CameraPosWorld;
-in vec3 N;
+in VS_OUT
+{
+    vec3 FragPosView;
+    vec3 NormalView;
+} fs_in;
 
 void main()
 {
-    const vec3 LightDir = normalize(vec3(-0.5, -0.7, -0.5));
-    vec3 Normal = normalize(N);
-
-    vec3 Ambient = 0.2 * Color;
-    vec3 Diffuse = max(dot(Normal, -LightDir), 0.0) * Color;
-
-    FragColor = vec4(Ambient + Diffuse, 1.0);
+    gPos = fs_in.FragPosView;
+    gNormal = normalize(fs_in.NormalView);
+    gAlbedo = Color;
 }

@@ -1,5 +1,8 @@
-#include "haha3d_platform.h"
+#include <random>
+// TODO(georgy): Get rid of this
+#include <vector>
 #include "haha3d_intrinsics.h"
+#include "haha3d_math.h"
 #include "haha3d_shader.h"
 
 struct model
@@ -113,6 +116,13 @@ struct game_state
     shader Shader;
     shader DebugShader;
     shader ParticleShader;
+    shader SSAOShader, SSAOBlurShader;
+    shader DeferredShader;
+
+    GLuint GBuffer;
+    GLuint GBufferPos, GBufferNormals, GBufferAlbedo, DepthRBO;
+    GLuint SSAOFramebuffer, SSAOColorBuffer, SSAONoiseTangentTexture, SSAOBlurFramebuffer, SSAOBlurColorBuffer;
+    GLuint DeferredPassQuadVAO, DeferredPassQuadVBO;
 
     model Cube, Quad, Sphere;
 

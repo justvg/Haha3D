@@ -27,8 +27,6 @@ typedef double r64;
 #define Assert(Expression) if(!(Expression)) { *(int *)0 = 0; }
 #define ArrayCount(Array) (sizeof(Array)/sizeof((Array)[0]))
 
-#include "haha3d_math.h"
-
 struct button
 {
     b32 EndedDown;
